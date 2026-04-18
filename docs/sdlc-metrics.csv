@@ -1,0 +1,3 @@
+week,milestone,commits,pr_cycle_time_median_hr,eval_pass_rate_pct,ci_tokens_k,human_overrides,notes
+1,M1,1,,,,,Skeleton landed direct-to-main; Postgres dual-role + /seed-data + developer/code-reviewer subagents + claude-review.yml
+2,M2,6,,,,,Agent + CLI + sqlglot validator + schema_introspect/sql_execute tools; test-writer subagent; eval-regression.yml stub (no cases yet)

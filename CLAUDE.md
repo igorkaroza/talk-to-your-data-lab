@@ -55,7 +55,8 @@ Any change that relaxes these rails must be called out in the PR description.
 2. Register it on the SDK MCP server in `src/genbi/agent.py` and allow-list it in `ClaudeAgentOptions.allowed_tools`.
 3. Add a unit test in `tests/test_tools.py` covering the happy path and at least one failure mode.
 4. If it runs SQL, route through `src/genbi/safety.py` — never build raw strings.
-5. Run `/run-eval` to confirm no regressions.
+5. If it returns a structured payload the UI should render (tables, `plotly_json` from `chart_render`, etc.), extend `src/genbi/ui/render.py` so both live-drain and replay paths render it consistently.
+6. Run `/run-eval` to confirm no regressions.
 
 The `/add-tool` skill automates steps 1–3 — use it.
 
@@ -63,7 +64,7 @@ The `/add-tool` skill automates steps 1–3 — use it.
 
 - **Skills** (`.claude/skills/`): `seed-data` (M1), `run-eval`, `new-question`, `add-tool`, `weekly-update`, `pr-prep`, `triage`, `security-sweep`, `daily-standup`.
 - **Subagents** (`.claude/agents/`): `developer`, `code-reviewer` (M1), `test-writer` (M2), `docs-writer`, `sql-reviewer`, `schema-explorer`, `chart-designer`, `release-notes` (staggered M2–M4).
-- **Hooks** (`.claude/settings.json`): ruff on `Write|Edit`, advisory `code-reviewer` on `git commit`, `pytest -q` on `Stop`.
+- **Hooks** (`.claude/settings.json`): ruff on `Write|Edit`, advisory `docs-writer` drift check on `Write|Edit` of `tools.py` / `agent.py` / `pyproject.toml`, advisory `code-reviewer` on `git commit`, `pytest -q` on `Stop`.
 - **MCP** (`.mcp.json`): standalone `postgres-readonly` extracted from in-process `@tool` in M4.
 - **CI** (`.github/workflows/`): `claude-review.yml` (M1), `eval-regression.yml` (M2 stub → M4 gate), `nightly-doc-sync.yml` + `release-notes.yml` (M4), `issue-to-pr.yml` (M5).
 

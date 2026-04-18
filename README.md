@@ -1,6 +1,6 @@
 # Talk-to-Your-Data GenBI PoC
 
-A natural-language → SQL → chart/table/summary chat over PostgreSQL, built as a Claude Code AI-adoption training deliverable. The terminal CLI ships today (M2); a Streamlit UI lands in M3.
+A natural-language → SQL → chart/table/summary chat over PostgreSQL, built as a Claude Code AI-adoption training deliverable. Ships with a terminal CLI and a Streamlit chat UI (M3).
 
 > Full 5-week plan: [PLAN.md](PLAN.md). Project conventions and safety rails: [CLAUDE.md](CLAUDE.md).
 
@@ -10,14 +10,14 @@ A natural-language → SQL → chart/table/summary chat over PostgreSQL, built a
 - **PostgreSQL 16** via Docker (host port `5433`)
 - **`claude-agent-sdk`** (Python) — agent loop, `@tool`, in-process MCP
 - **SQLAlchemy 2** + `psycopg[binary]` + **sqlglot** (SQL safety)
-- **Typer** + **Rich** for the CLI; **Streamlit** + **Plotly** land in M3
+- **Typer** + **Rich** for the CLI; **Streamlit** + **Plotly** for the UI
 - **Faker** for synthetic data; **pytest** + **ruff** for dev loop
 
 ## Prerequisites
 
 - [Docker](https://www.docker.com/) (for Postgres)
 - [uv](https://docs.astral.sh/uv/) (Python env/deps)
-- An Anthropic API key
+- Claude authentication — either an `ANTHROPIC_API_KEY` in `.env`, **or** an active `claude login` session (the CLI caches credentials in the macOS Keychain / Linux keyring). CI uses the API key; local dev can use either.
 
 ## Setup
 
@@ -54,6 +54,16 @@ tool → sql_execute   SELECT COUNT(*) FROM tickets WHERE priority = 'High' ...
 ```
 
 Type `exit` or Ctrl-D to quit.
+
+## Run the UI
+
+```bash
+uv run streamlit run app/streamlit_app.py
+```
+
+Opens a browser chat at `http://localhost:8501`. Ask about `sales_orders` or `tickets` — answers come back as tables or Plotly charts in the chat pane, with the full tool-call trace (SQL, result shapes) in the sidebar. Chart and table results include a CSV download button.
+
+The agent runtime lives on a background thread (`src/genbi/ui/runtime.py`) so one `ClaudeSDKClient` survives Streamlit's per-interaction reruns — don't call `asyncio.run` from the app code.
 
 ## Tests & lint
 
