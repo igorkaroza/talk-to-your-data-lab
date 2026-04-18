@@ -1,0 +1,88 @@
+# GenBI eval suite — 12 cases covering sales_orders + tickets, half scalar/table,
+# half chart. q01 + q07 are the M5 hero questions (verbatim). Scoring is
+# structural (which tool fired, which tables were referenced, chart type,
+# row_count) — never numeric, since Faker seed data is noise.
+#
+# Schema per case:
+#   id:                 qNN (unique)
+#   question:           natural-language prompt sent to the agent
+#   must_include_tables: tables whose names must appear in the generated SQL
+#   expected_kind:      scalar | table | chart
+#                         - scalar | table → sql_execute must fire
+#                         - chart          → chart_render must fire
+#   expected_chart_type: bar | line | pie | scatter (chart cases only)
+#   min_rows:           optional; last tool-result payload must report
+#                       row_count >= min_rows
+
+- id: q01
+  question: "Show revenue by region as a bar chart"
+  must_include_tables: [sales_orders]
+  expected_kind: chart
+  expected_chart_type: bar
+  min_rows: 3
+
+- id: q02
+  question: "What was the total revenue in the last 30 days?"
+  must_include_tables: [sales_orders]
+  expected_kind: scalar
+
+- id: q03
+  question: "List the top 5 products by total revenue."
+  must_include_tables: [sales_orders]
+  expected_kind: table
+  min_rows: 5
+
+- id: q04
+  question: "Show monthly sales trend over the last 12 months as a line chart."
+  must_include_tables: [sales_orders]
+  expected_kind: chart
+  expected_chart_type: line
+  min_rows: 3
+
+- id: q05
+  question: "Break down revenue by product category as a pie chart."
+  must_include_tables: [sales_orders]
+  expected_kind: chart
+  expected_chart_type: pie
+  min_rows: 3
+
+- id: q06
+  question: "Which product category has the highest average order amount?"
+  must_include_tables: [sales_orders]
+  expected_kind: scalar
+
+- id: q07
+  question: "How many high-priority tickets closed last month?"
+  must_include_tables: [tickets]
+  expected_kind: scalar
+
+- id: q08
+  question: "Average resolution time in hours per team, for resolved tickets."
+  must_include_tables: [tickets]
+  expected_kind: table
+  min_rows: 3
+
+- id: q09
+  question: "Show ticket counts by priority as a bar chart."
+  must_include_tables: [tickets]
+  expected_kind: chart
+  expected_chart_type: bar
+  min_rows: 3
+
+- id: q10
+  question: "Which team has the slowest average resolution time?"
+  must_include_tables: [tickets]
+  expected_kind: scalar
+
+- id: q11
+  question: "Show tickets created per month over the last 6 months as a line chart."
+  must_include_tables: [tickets]
+  expected_kind: chart
+  expected_chart_type: line
+  min_rows: 3
+
+- id: q12
+  question: "Break down ticket status counts for the 'Network' category."
+  must_include_tables: [tickets]
+  expected_kind: table
+  min_rows: 2
