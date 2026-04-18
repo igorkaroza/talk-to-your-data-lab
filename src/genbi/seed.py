@@ -65,9 +65,9 @@ REGION_WEIGHTS = [0.28, 0.14, 0.22, 0.26, 0.10]
 
 PRODUCTS = {
     "Electronics": [("Aurora Laptop", 1499), ("Nimbus Phone", 899), ("Echo Buds", 149)],
-    "Home":        [("Hearth Blender", 79),  ("Lumen Lamp", 39),    ("Atlas Chair", 249)],
-    "Outdoor":     [("Trail Tent", 329),     ("Summit Pack", 119),  ("River Kayak", 699)],
-    "Apparel":     [("Coast Jacket", 179),   ("Ridge Boots", 139),  ("Horizon Tee", 29)],
+    "Home": [("Hearth Blender", 79), ("Lumen Lamp", 39), ("Atlas Chair", 249)],
+    "Outdoor": [("Trail Tent", 329), ("Summit Pack", 119), ("River Kayak", 699)],
+    "Apparel": [("Coast Jacket", 179), ("Ridge Boots", 139), ("Horizon Tee", 29)],
 }
 HERO_PRODUCTS = {"Aurora Laptop", "Trail Tent"}
 
@@ -76,6 +76,7 @@ PRIORITIES = ["Low", "Medium", "High", "Critical"]
 PRIORITY_WEIGHTS = [0.45, 0.35, 0.15, 0.05]
 TEAMS = ["Platform", "AppOps", "Data", "Security", "Support"]
 STATUSES = ["Open", "In Progress", "Resolved", "Closed"]
+RESOLVED_RATIO = 0.8
 
 READER_ROLE = "genbi_reader"
 
@@ -97,16 +98,20 @@ def _gen_sales(faker: Faker, n: int) -> list[dict]:
         region = random.choices(REGIONS, REGION_WEIGHTS, k=1)[0]
         qty = random.randint(1, 6 if product in HERO_PRODUCTS else 3)
         unit = Decimal(str(round(base_price * random.uniform(0.9, 1.05), 2)))
-        rows.append({
-            "order_date": faker.date_between(start_date=today - timedelta(days=365), end_date=today),
-            "customer":   faker.company(),
-            "product":    product,
-            "category":   category,
-            "region":     region,
-            "quantity":   qty,
-            "unit_price": unit,
-            "amount":     unit * qty,
-        })
+        rows.append(
+            {
+                "order_date": faker.date_between(
+                    start_date=today - timedelta(days=365), end_date=today
+                ),
+                "customer": faker.company(),
+                "product": product,
+                "category": category,
+                "region": region,
+                "quantity": qty,
+                "unit_price": unit,
+                "amount": unit * qty,
+            }
+        )
     return rows
 
 
@@ -117,22 +122,28 @@ def _gen_tickets(faker: Faker, n: int) -> list[dict]:
         created = faker.date_time_between(start_date=now - timedelta(days=180), end_date=now)
         priority = random.choices(PRIORITIES, PRIORITY_WEIGHTS, k=1)[0]
         team = random.choice(TEAMS)
-        is_resolved = random.random() < 0.8
+        is_resolved = random.random() < RESOLVED_RATIO
         base_hours = {"Low": 40, "Medium": 18, "High": 6, "Critical": 2}[priority]
         # "Support" team resolves slower — a demo-worthy story.
         jitter = random.uniform(0.4, 1.8) * (1.6 if team == "Support" else 1.0)
         resolution_hours = round(base_hours * jitter, 2) if is_resolved else None
         resolved_at = created + timedelta(hours=resolution_hours) if resolution_hours else None
-        status = random.choice(["Resolved", "Closed"]) if is_resolved else random.choice(["Open", "In Progress"])
-        rows.append({
-            "created_at":       created,
-            "resolved_at":      resolved_at,
-            "category":         random.choice(TICKET_CATEGORIES),
-            "priority":         priority,
-            "assigned_team":    team,
-            "status":           status,
-            "resolution_hours": resolution_hours,
-        })
+        status = (
+            random.choice(["Resolved", "Closed"])
+            if is_resolved
+            else random.choice(["Open", "In Progress"])
+        )
+        rows.append(
+            {
+                "created_at": created,
+                "resolved_at": resolved_at,
+                "category": random.choice(TICKET_CATEGORIES),
+                "priority": priority,
+                "assigned_team": team,
+                "status": status,
+                "resolution_hours": resolution_hours,
+            }
+        )
     return rows
 
 
@@ -149,7 +160,8 @@ def _insert(engine: Engine, table: str, rows: list[dict]) -> None:
 
 def _provision_reader(engine: Engine, password: str) -> None:
     with engine.begin() as conn:
-        conn.execute(text(f"""
+        conn.execute(
+            text(f"""
             DO $$
             BEGIN
                 IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{READER_ROLE}') THEN
@@ -157,16 +169,19 @@ def _provision_reader(engine: Engine, password: str) -> None:
                 END IF;
             END
             $$;
-        """))
+        """)
+        )
         conn.execute(text(f"ALTER ROLE {READER_ROLE} WITH PASSWORD '{password}'"))
         # Reset then grant: keep the role strictly read-only.
         conn.execute(text(f"REVOKE ALL ON ALL TABLES IN SCHEMA public FROM {READER_ROLE}"))
         conn.execute(text(f"REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM {READER_ROLE}"))
         conn.execute(text(f"GRANT USAGE ON SCHEMA public TO {READER_ROLE}"))
         conn.execute(text(f"GRANT SELECT ON ALL TABLES IN SCHEMA public TO {READER_ROLE}"))
-        conn.execute(text(
-            f"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO {READER_ROLE}"
-        ))
+        conn.execute(
+            text(
+                f"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO {READER_ROLE}"
+            )
+        )
 
 
 def _reader_password() -> str:

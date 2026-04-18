@@ -18,6 +18,7 @@ A natural-language → SQL → chart/table/summary chat over Postgres. Built as 
 docker compose up -d postgres      # start Postgres
 uv sync --all-extras               # install runtime + ui + dev
 uv run python -m genbi.seed        # wipe + reseed synthetic data
+uv run python -m genbi.cli chat    # terminal chat against the DB (M2+)
 uv run streamlit run app/streamlit_app.py  # M3+
 uv run pytest -q                   # run tests
 uv run ruff format . && uv run ruff check --fix .

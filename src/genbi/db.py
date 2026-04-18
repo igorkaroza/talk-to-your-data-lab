@@ -24,9 +24,7 @@ load_dotenv()
 def _require(var: str) -> str:
     value = os.environ.get(var)
     if not value:
-        raise RuntimeError(
-            f"{var} is not set. Copy .env.example to .env and fill it in."
-        )
+        raise RuntimeError(f"{var} is not set. Copy .env.example to .env and fill it in.")
     return value
 
 
