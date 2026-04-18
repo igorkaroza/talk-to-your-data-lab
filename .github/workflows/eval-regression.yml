@@ -1,0 +1,65 @@
+name: Eval Regression
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: eval-regression-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  evals:
+    name: Run eval suite (stub — filled in M4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: genbi_admin
+          POSTGRES_PASSWORD: genbi_admin_dev
+          POSTGRES_DB: genbi
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U genbi_admin -d genbi"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+psycopg://genbi_admin:genbi_admin_dev@localhost:5433/genbi
+      READONLY_DATABASE_URL: postgresql+psycopg://genbi_reader:genbi_reader_dev@localhost:5433/genbi
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: uv sync --all-extras
+
+      - name: Seed database
+        run: uv run python -m genbi.seed
+
+      - name: Run unit + integration tests
+        run: uv run pytest -q
+
+      - name: Run eval suite (TODO M4)
+        run: |
+          echo "TODO(M4): run evals/run_evals.py and fail if pass-rate drops >5% vs main."
+          echo "Skeleton is live; secrets + service container verified."
