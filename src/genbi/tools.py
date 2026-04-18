@@ -15,6 +15,8 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
+import pandas as pd
+import plotly.express as px
 from claude_agent_sdk import tool
 from sqlalchemy import text
 
@@ -22,6 +24,7 @@ from genbi.db import get_engine
 from genbi.safety import validate_and_prepare
 
 STATEMENT_TIMEOUT = "5s"
+VALID_CHART_TYPES = ("bar", "line", "pie", "scatter")
 
 
 def _json_safe(value: Any) -> Any:
@@ -34,6 +37,16 @@ def _json_safe(value: Any) -> Any:
 
 def _as_content(payload: dict[str, Any]) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": json.dumps(payload, default=_json_safe)}]}
+
+
+def _run_select(sql: str) -> tuple[str, list[str], list[list[Any]]]:
+    prepared = validate_and_prepare(sql)
+    with get_engine().connect() as conn:
+        conn.execute(text(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'"))
+        result = conn.execute(text(prepared))
+        columns = list(result.keys())
+        rows = [[_json_safe(v) for v in row] for row in result.fetchall()]
+    return prepared, columns, rows
 
 
 @tool(
@@ -72,16 +85,45 @@ async def schema_introspect(_args: dict[str, Any]) -> dict[str, Any]:
     {"sql": str},
 )
 async def sql_execute(args: dict[str, Any]) -> dict[str, Any]:
-    prepared = validate_and_prepare(args["sql"])
-    with get_engine().connect() as conn:
-        conn.execute(text(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'"))
-        result = conn.execute(text(prepared))
-        columns = list(result.keys())
-        rows = [[_json_safe(v) for v in row] for row in result.fetchall()]
+    prepared, columns, rows = _run_select(args["sql"])
     payload = {
         "sql_executed": prepared,
         "columns": columns,
         "rows": rows,
         "row_count": len(rows),
+    }
+    return _as_content(payload)
+
+
+@tool(
+    "chart_render",
+    (
+        "Render a Plotly chart from a SELECT result. Use for trend/ranking/breakdown questions. "
+        "chart_type must be one of: bar, line, pie, scatter. For pie, x is the category column "
+        "and y is the numeric column."
+    ),
+    {"sql": str, "chart_type": str, "x": str, "y": str},
+)
+async def chart_render(args: dict[str, Any]) -> dict[str, Any]:
+    chart_type = args["chart_type"]
+    if chart_type not in VALID_CHART_TYPES:
+        raise ValueError(
+            f"Unknown chart_type {chart_type!r}. Must be one of: {', '.join(VALID_CHART_TYPES)}"
+        )
+    x = args["x"]
+    y = args["y"]
+    prepared, columns, rows = _run_select(args["sql"])
+    df = pd.DataFrame(rows, columns=columns)
+    if chart_type == "pie":
+        fig = px.pie(df, names=x, values=y)
+    else:
+        fig = getattr(px, chart_type)(df, x=x, y=y)
+    payload = {
+        "sql_executed": prepared,
+        "chart_type": chart_type,
+        "columns": columns,
+        "rows": rows,
+        "row_count": len(rows),
+        "plotly_json": fig.to_json(),
     }
     return _as_content(payload)

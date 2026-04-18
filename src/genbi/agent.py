@@ -33,7 +33,7 @@ from genbi.events import (
     ToolUseEvent,
     TurnEvent,
 )
-from genbi.tools import schema_introspect, sql_execute
+from genbi.tools import chart_render, schema_introspect, sql_execute
 
 MODEL = "claude-sonnet-4-6"
 
@@ -46,19 +46,23 @@ Workflow for every user question:
    could be large. Use standard SQL date functions (e.g. date_trunc, interval).
 3. Call `sql_execute` with that SQL. If it is rejected or returns nothing
    useful, revise the SQL and try again — do not guess numbers.
-4. Reply with a concise answer (one or two sentences) and a single line
+4. If the user asks for a chart, or the shape of the answer suggests one
+   (trend over time, top-N ranking, breakdown by category), call
+   `chart_render` instead of `sql_execute`. Pick chart_type from
+   bar/line/pie/scatter and pass the column names as x and y.
+5. Reply with a concise answer (one or two sentences) and a single line
    describing how you got it (which table(s) and which aggregation).
 
 Rules:
 - Never invent numbers. Every quantitative claim must come from a
-  `sql_execute` result.
+  `sql_execute` or `chart_render` result.
 - Never attempt INSERT/UPDATE/DELETE/DDL — the database is read-only and
   they will be rejected.
 """
 
 _MCP_SERVER = create_sdk_mcp_server(
     name="genbi",
-    tools=[schema_introspect, sql_execute],
+    tools=[schema_introspect, sql_execute, chart_render],
 )
 
 OPTIONS = ClaudeAgentOptions(
@@ -68,6 +72,7 @@ OPTIONS = ClaudeAgentOptions(
     allowed_tools=[
         "mcp__genbi__schema_introspect",
         "mcp__genbi__sql_execute",
+        "mcp__genbi__chart_render",
     ],
 )
 
@@ -122,7 +127,7 @@ async def stream_turn(client: ClaudeSDKClient, prompt: str) -> AsyncIterator[Tur
 
 
 def _render_tool_use(console: Console, event: ToolUseEvent) -> None:
-    if event.name == "sql_execute" and "sql" in event.input:
+    if event.name in {"sql_execute", "chart_render"} and "sql" in event.input:
         console.print(
             Panel(
                 Syntax(event.input["sql"], "sql", theme="ansi_dark", word_wrap=True),
@@ -138,6 +143,11 @@ def _render_tool_result(console: Console, event: ToolResultEvent) -> None:
     payload = event.payload
     if payload is None:
         summary = event.raw_text[:200]
+    elif "plotly_json" in payload:
+        summary = (
+            f"{payload.get('chart_type', '?')} chart, "
+            f"{payload.get('row_count', 0)} row(s), columns: {payload.get('columns', [])}"
+        )
     elif "row_count" in payload:
         summary = f"{payload['row_count']} row(s), columns: {payload.get('columns', [])}"
     elif "tables" in payload:

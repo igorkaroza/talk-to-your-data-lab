@@ -15,7 +15,7 @@ from sqlalchemy.exc import OperationalError
 
 from genbi.db import get_engine
 from genbi.safety import SafetyError
-from genbi.tools import schema_introspect, sql_execute
+from genbi.tools import chart_render, schema_introspect, sql_execute
 
 DEFAULT_LIMIT = 1000
 
@@ -82,3 +82,57 @@ class TestSqlExecuteSafety:
     async def test_multi_statement_rejected(self) -> None:
         with pytest.raises(SafetyError):
             await sql_execute.handler({"sql": "SELECT 1; DROP TABLE sales_orders"})
+
+
+class TestChartRender:
+    async def test_bar_chart_happy_path(self) -> None:
+        result = await chart_render.handler(
+            {
+                "sql": "SELECT priority, COUNT(*) AS n FROM tickets GROUP BY priority",
+                "chart_type": "bar",
+                "x": "priority",
+                "y": "n",
+            }
+        )
+        payload = _payload(result)
+        assert payload["chart_type"] == "bar"
+        assert payload["columns"] == ["priority", "n"]
+        assert payload["row_count"] > 0
+        fig = json.loads(payload["plotly_json"])
+        assert "data" in fig and len(fig["data"]) >= 1
+
+    async def test_pie_chart_uses_names_values(self) -> None:
+        result = await chart_render.handler(
+            {
+                "sql": "SELECT region, SUM(amount) AS total FROM sales_orders GROUP BY region",
+                "chart_type": "pie",
+                "x": "region",
+                "y": "total",
+            }
+        )
+        payload = _payload(result)
+        assert payload["chart_type"] == "pie"
+        fig = json.loads(payload["plotly_json"])
+        assert fig["data"][0]["type"] == "pie"
+
+    async def test_unknown_chart_type_rejected(self) -> None:
+        with pytest.raises(ValueError, match="Unknown chart_type"):
+            await chart_render.handler(
+                {
+                    "sql": "SELECT region, SUM(amount) AS total FROM sales_orders GROUP BY region",
+                    "chart_type": "heatmap",
+                    "x": "region",
+                    "y": "total",
+                }
+            )
+
+    async def test_bad_sql_propagates_safety_error(self) -> None:
+        with pytest.raises(SafetyError):
+            await chart_render.handler(
+                {
+                    "sql": "DROP TABLE sales_orders",
+                    "chart_type": "bar",
+                    "x": "region",
+                    "y": "total",
+                }
+            )
