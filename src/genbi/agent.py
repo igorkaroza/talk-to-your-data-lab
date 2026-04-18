@@ -10,6 +10,7 @@ Model and prompt are defined here so the CLI, evals, and Streamlit app
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncIterator
 
 from claude_agent_sdk import (
     AssistantMessage,
@@ -25,6 +26,13 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.syntax import Syntax
 
+from genbi.events import (
+    DoneEvent,
+    TextEvent,
+    ToolResultEvent,
+    ToolUseEvent,
+    TurnEvent,
+)
 from genbi.tools import schema_introspect, sql_execute
 
 MODEL = "claude-sonnet-4-6"
@@ -64,56 +72,93 @@ OPTIONS = ClaudeAgentOptions(
 )
 
 
-def _render_tool_use(console: Console, block: ToolUseBlock) -> None:
-    short_name = block.name.replace("mcp__genbi__", "")
-    if short_name == "sql_execute" and "sql" in block.input:
-        console.print(
-            Panel(
-                Syntax(block.input["sql"], "sql", theme="ansi_dark", word_wrap=True),
-                title=f"[dim]tool →[/dim] [cyan]{short_name}[/cyan]",
-                border_style="cyan",
-            )
-        )
-    else:
-        console.print(f"[dim]tool →[/dim] [cyan]{short_name}[/cyan]({block.input or ''})")
+def _short_tool_name(name: str) -> str:
+    return name.replace("mcp__genbi__", "")
 
 
-def _render_tool_result(console: Console, block: ToolResultBlock) -> None:
+def _tool_result_event(block: ToolResultBlock, tool_names: dict[str, str]) -> ToolResultEvent:
     content = block.content
     if isinstance(content, list) and content and isinstance(content[0], dict):
-        text = content[0].get("text", "")
+        raw = content[0].get("text", "")
     else:
-        text = str(content)
+        raw = str(content) if content is not None else ""
     try:
-        parsed = json.loads(text)
+        parsed = json.loads(raw)
     except (json.JSONDecodeError, TypeError):
-        summary = text[:200]
-    else:
-        if "row_count" in parsed:
-            summary = f"{parsed['row_count']} row(s), columns: {parsed.get('columns', [])}"
-        elif "tables" in parsed:
-            summary = f"{len(parsed['tables'])} table(s): {[t['name'] for t in parsed['tables']]}"
-        else:
-            summary = text[:200]
-    marker = "[red]error[/red]" if block.is_error else "[dim]result[/dim]"
-    console.print(f"{marker} {summary}")
+        parsed = None
+    return ToolResultEvent(
+        name=tool_names.get(block.tool_use_id, ""),
+        payload=parsed if isinstance(parsed, dict) else None,
+        raw_text=raw,
+        is_error=bool(block.is_error),
+    )
 
 
-async def _run_turn(client: ClaudeSDKClient, console: Console, prompt: str) -> None:
+async def stream_turn(client: ClaudeSDKClient, prompt: str) -> AsyncIterator[TurnEvent]:
+    """Drive one turn through ``client`` and yield typed events.
+
+    Shared by the CLI and the Streamlit UI (M3) so both consume the same
+    stream. The generator tracks ``tool_use_id`` → short name so that each
+    :class:`ToolResultEvent` carries the name of the tool that produced it.
+    """
     await client.query(prompt)
+    tool_names: dict[str, str] = {}
     async for message in client.receive_response():
         if isinstance(message, AssistantMessage):
             for block in message.content:
                 if isinstance(block, TextBlock):
-                    console.print(block.text)
+                    yield TextEvent(text=block.text)
                 elif isinstance(block, ToolUseBlock):
-                    _render_tool_use(console, block)
+                    short = _short_tool_name(block.name)
+                    tool_names[block.id] = short
+                    yield ToolUseEvent(name=short, input=block.input or {})
                 elif isinstance(block, ToolResultBlock):
-                    _render_tool_result(console, block)
-        elif isinstance(message, ResultMessage) and message.total_cost_usd is not None:
-            console.print(
-                f"[dim]— {message.num_turns} turn(s), ${message.total_cost_usd:.4f}[/dim]"
+                    yield _tool_result_event(block, tool_names)
+        elif isinstance(message, ResultMessage):
+            yield DoneEvent(
+                num_turns=message.num_turns,
+                cost_usd=message.total_cost_usd,
             )
+
+
+def _render_tool_use(console: Console, event: ToolUseEvent) -> None:
+    if event.name == "sql_execute" and "sql" in event.input:
+        console.print(
+            Panel(
+                Syntax(event.input["sql"], "sql", theme="ansi_dark", word_wrap=True),
+                title=f"[dim]tool →[/dim] [cyan]{event.name}[/cyan]",
+                border_style="cyan",
+            )
+        )
+    else:
+        console.print(f"[dim]tool →[/dim] [cyan]{event.name}[/cyan]({event.input or ''})")
+
+
+def _render_tool_result(console: Console, event: ToolResultEvent) -> None:
+    payload = event.payload
+    if payload is None:
+        summary = event.raw_text[:200]
+    elif "row_count" in payload:
+        summary = f"{payload['row_count']} row(s), columns: {payload.get('columns', [])}"
+    elif "tables" in payload:
+        tables = payload["tables"]
+        summary = f"{len(tables)} table(s): {[t['name'] for t in tables]}"
+    else:
+        summary = event.raw_text[:200]
+    marker = "[red]error[/red]" if event.is_error else "[dim]result[/dim]"
+    console.print(f"{marker} {summary}")
+
+
+async def _run_turn(client: ClaudeSDKClient, console: Console, prompt: str) -> None:
+    async for event in stream_turn(client, prompt):
+        if isinstance(event, TextEvent):
+            console.print(event.text)
+        elif isinstance(event, ToolUseEvent):
+            _render_tool_use(console, event)
+        elif isinstance(event, ToolResultEvent):
+            _render_tool_result(console, event)
+        elif isinstance(event, DoneEvent) and event.cost_usd is not None:
+            console.print(f"[dim]— {event.num_turns} turn(s), ${event.cost_usd:.4f}[/dim]")
 
 
 async def run_chat() -> None:
