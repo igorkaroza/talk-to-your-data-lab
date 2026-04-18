@@ -11,7 +11,12 @@ import typer
 
 from genbi.agent import run_chat
 
-app = typer.Typer(help="Talk-to-Your-Data GenBI CLI.")
+app = typer.Typer(help="Talk-to-Your-Data GenBI CLI.", no_args_is_help=True)
+
+
+@app.callback()
+def _main() -> None:
+    """Force Typer to keep subcommand routing even with a single command."""
 
 
 @app.command()
