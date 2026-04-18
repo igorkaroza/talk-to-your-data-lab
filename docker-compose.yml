@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: genbi-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: genbi_admin
+      POSTGRES_PASSWORD: genbi_admin_dev
+      POSTGRES_DB: genbi
+    ports:
+      - "5433:5432"
+    volumes:
+      - genbi_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U genbi_admin -d genbi"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  genbi_pgdata:

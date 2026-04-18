@@ -1,0 +1,27 @@
+/.idea/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+build/
+dist/
+
+# uv / venv
+.venv/
+
+# Environment
+.env
+.env.local
+
+# Streamlit
+.streamlit/secrets.toml
+
+# CI metrics (local dev noise)
+.ci-metrics/
+
+# OS
+.DS_Store

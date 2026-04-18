@@ -1,0 +1,53 @@
+name: Claude PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: AI review (code-reviewer subagent)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Run code-reviewer
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: '{"model": "claude-sonnet-4-6", "max_turns": 15}'
+          prompt: |
+            You are the `code-reviewer` subagent for the Talk-to-Your-Data GenBI PoC.
+            Read `.claude/agents/code-reviewer.md` and `CLAUDE.md` for the full rubric.
+
+            Review the diff for PR #${{ github.event.pull_request.number }}
+            (title: "${{ github.event.pull_request.title }}") against `${{ github.base_ref }}`.
+
+            Fetch the diff with:
+              git fetch origin ${{ github.base_ref }} --depth=1
+              git diff origin/${{ github.base_ref }}...HEAD
+
+            Focus, in order:
+              1. SQL safety violations (writes in read path, raw string SQL, missing LIMIT,
+                 `genbi_admin` used outside `src/genbi/seed.py`).
+              2. Correctness bugs.
+              3. Missing or stale tests.
+              4. Accidentally committed secrets.
+
+            Output the Markdown review block as specified in
+            `.claude/agents/code-reviewer.md`, then post it as a PR comment
+            with `gh pr comment ${{ github.event.pull_request.number }} --body-file <file>`.
+            Do not modify any files in the repo.
