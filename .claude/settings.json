@@ -16,9 +16,7 @@
       "Bash(git diff:*)",
       "Bash(git log:*)",
       "Bash(git restore:*)",
-      "Bash(gh pr:*)",
-      "Bash(gh run:*)",
-      "Bash(gh issue:*)"
+      "Bash(gh:*)"
     ],
     "ask": [
       "Bash(git push:*)",
