@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   evals:
-    name: Run eval suite (stub — filled in M4)
+    name: Run eval suite
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -49,6 +49,8 @@ jobs:
         uses: astral-sh/setup-uv@v4
         with:
           python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
 
       - name: Install deps
         run: uv sync --all-extras
@@ -59,7 +61,50 @@ jobs:
       - name: Run unit + integration tests
         run: uv run pytest -q
 
-      - name: Run eval suite (TODO M4)
+      - name: Run eval suite
+        id: evals
         run: |
-          echo "TODO(M4): run evals/run_evals.py and fail if pass-rate drops >5% vs main."
-          echo "Skeleton is live; secrets + service container verified."
+          if [ -f .eval-baseline.json ]; then
+            echo "Gating against committed baseline (.eval-baseline.json)."
+            uv run python -m evals.run_evals \
+              --gate .eval-baseline.json \
+              --json-out /tmp/eval-result.json
+          else
+            echo "::warning::No .eval-baseline.json committed — running suite without regression gate. Regenerate on main with: uv run python -m evals.run_evals --write-baseline .eval-baseline.json"
+            uv run python -m evals.run_evals \
+              --json-out /tmp/eval-result.json
+          fi
+
+      - name: Post eval matrix as PR comment
+        if: always() && github.event.pull_request.number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [ ! -f /tmp/eval-result.json ]; then
+            echo "No eval-result.json produced — eval step likely crashed before writing output. Skipping PR comment."
+            exit 0
+          fi
+          uv run python - <<'PY' > /tmp/eval-comment.md
+          import json, pathlib
+          data = json.loads(pathlib.Path("/tmp/eval-result.json").read_text())
+          cases = data["cases"]
+          passed = sum(1 for c in cases if c["passed"])
+          total = len(cases)
+          rate = data["pass_rate"]
+          lines = [
+              "## Eval regression matrix",
+              "",
+              f"**pass-rate:** {rate:.0%} ({passed}/{total})",
+              f"**run:** {data['run_date']}",
+              "",
+              "| id | status | reason |",
+              "| --- | --- | --- |",
+          ]
+          for c in cases:
+              status = "pass" if c["passed"] else "fail"
+              reason = "" if c["passed"] else c["reason"].replace("|", "\\|")
+              lines.append(f"| {c['id']} | {status} | {reason} |")
+          print("\n".join(lines))
+          PY
+          gh pr comment "$PR_NUMBER" --body-file /tmp/eval-comment.md
