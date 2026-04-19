@@ -20,6 +20,7 @@ from claude_agent_sdk import (
     TextBlock,
     ToolResultBlock,
     ToolUseBlock,
+    UserMessage,
     create_sdk_mcp_server,
 )
 from rich.console import Console
@@ -117,8 +118,11 @@ async def stream_turn(client: ClaudeSDKClient, prompt: str) -> AsyncIterator[Tur
                     short = _short_tool_name(block.name)
                     tool_names[block.id] = short
                     yield ToolUseEvent(name=short, input=block.input or {})
-                elif isinstance(block, ToolResultBlock):
-                    yield _tool_result_event(block, tool_names)
+        elif isinstance(message, UserMessage):
+            if isinstance(message.content, list):
+                for block in message.content:
+                    if isinstance(block, ToolResultBlock):
+                        yield _tool_result_event(block, tool_names)
         elif isinstance(message, ResultMessage):
             yield DoneEvent(
                 num_turns=message.num_turns,

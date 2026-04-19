@@ -30,7 +30,11 @@ def get_runtime() -> AgentRuntime:
     return AgentRuntime()
 
 
-def _render_event(event: Any, *, turn_id: str, index: int) -> None:
+def _render_event(event: Any, *, turn_id: str, index: int, state: dict[str, Any]) -> None:
+    """Render one event. Intermediate tool results are cleared when a later
+    tool result arrives so only the turn's final chart/table stays in chat.
+    The sidebar trace (``render_tool_result``) still records every call.
+    """
     if isinstance(event, TextEvent):
         if event.text:
             st.markdown(event.text)
@@ -39,20 +43,28 @@ def _render_event(event: Any, *, turn_id: str, index: int) -> None:
     elif isinstance(event, ToolResultEvent):
         render_tool_result(event)
         if event.payload and not event.is_error:
-            render_result_in_chat(event.payload, key_prefix=f"{turn_id}-{index}")
+            prev = state.get("result_slot")
+            if prev is not None:
+                prev.empty()
+            slot = st.empty()
+            with slot.container():
+                render_result_in_chat(event.payload, key_prefix=f"{turn_id}-{index}")
+            state["result_slot"] = slot
     elif isinstance(event, DoneEvent):
         if event.cost_usd is not None:
             st.caption(f"— {event.num_turns} turn(s), ${event.cost_usd:.4f}")
 
 
 def _render_turn(turn: dict[str, Any]) -> None:
+    state: dict[str, Any] = {}
     with st.chat_message(turn["role"]):
         for i, event in enumerate(turn["events"]):
-            _render_event(event, turn_id=turn["id"], index=i)
+            _render_event(event, turn_id=turn["id"], index=i, state=state)
 
 
 def _drain_turn(q: queue.Queue, turn_id: str) -> list:
     collected: list = []
+    state: dict[str, Any] = {}
     i = 0
     while True:
         item = q.get()
@@ -63,7 +75,7 @@ def _drain_turn(q: queue.Queue, turn_id: str) -> list:
             collected.append(TextEvent(text=f"[error: {item!r}]"))
             break
         collected.append(item)
-        _render_event(item, turn_id=turn_id, index=i)
+        _render_event(item, turn_id=turn_id, index=i, state=state)
         i += 1
     return collected
 

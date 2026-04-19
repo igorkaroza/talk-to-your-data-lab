@@ -1,8 +1,6 @@
 # Talk-to-Your-Data GenBI PoC
 
-A natural-language → SQL → chart/table/summary chat over PostgreSQL, built as a Claude Code AI-adoption training deliverable. Ships with a terminal CLI and a Streamlit chat UI (M3).
-
-> Full 5-week plan: [PLAN.md](PLAN.md). Project conventions and safety rails: [CLAUDE.md](CLAUDE.md).
+A natural-language → SQL → chart/table/summary chat over PostgreSQL.
 
 ## Stack
 
