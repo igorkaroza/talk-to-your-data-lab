@@ -17,8 +17,8 @@ One command to go from "what did I ship this week" to a committed `docs/weekly-u
    - `git log --since=<start> --pretty=format:"%h" --shortstat` — surface area (files changed / insertions / deletions) for a one-line "size" number.
    - `gh pr list --state merged --search "merged:>=<start>" --json number,title,mergedAt,url` — merged PRs in the window.
    - `gh pr list --state open --json number,title,isDraft,url` — open PRs as "in flight" context.
-4. **Map commits → milestones.** Read the commit subjects — the repo convention is `Mx(scope): …` prefixes (e.g. `M4(ci): …`, `M3(ui): …`). Group the bullets under the milestone tags that appear in the window. Untagged commits ("docs: …", "chore: …") go under a `Housekeeping` bucket at the end.
-5. **Draft the update.** Mirror the template below. One bullet per commit group, not per commit — collapse `M4(evals): harness + 12 questions` + `M4(skills): /run-eval + /new-question` into a single `M4 evals` bullet when they clearly belong together. Keep each bullet under ~20 words; this is a Jira paste, not a changelog.
+4. **Map commits → scopes.** Read the commit subjects — the repo uses Conventional Commits (`type(scope): …` e.g. `feat(evals): …`, `chore(ci): …`). Group the bullets under the scope labels that appear in the window. Commits without a scope ("docs: …", "chore: …") go under a `Housekeeping` bucket at the end.
+5. **Draft the update.** Mirror the template below. One bullet per commit group, not per commit — collapse `feat(evals): harness + 12 questions` + `feat(skills): /run-eval + /new-question` into a single `evals` bullet when they clearly belong together. Keep each bullet under ~20 words; this is a Jira paste, not a changelog.
 6. **Write the file.** `Write` [docs/weekly-updates/NN.md](docs/weekly-updates/NN.md). Preserve the template below verbatim — the file is itself the Jira paste target plus a permanent log, so the same content serves both audiences.
 7. **Print back.** Echo the `## Shipped` bullets to the chat (just that section — the author pastes it into the Jira weekly-status task). Also print the filename so the author can review the full file before committing.
 8. **Do not commit.** The author decides whether to roll the weekly-update into the current branch's commit or make a standalone `docs: weekly update NN` commit. Never `git commit` from this skill.
@@ -32,8 +32,8 @@ One command to go from "what did I ship this week" to a committed `docs/weekly-u
 
 ## Shipped
 
-- **Mx** — <1-line bullet per shipped chunk, Jira-voice>
-- **Mx** — <...>
+- **<scope>** — <1-line bullet per shipped chunk, Jira-voice>
+- **<scope>** — <...>
 - **Housekeeping** — <docs/chore bullet, if any>
 
 ## In flight
@@ -42,7 +42,7 @@ One command to go from "what did I ship this week" to a committed `docs/weekly-u
 
 ## Next week
 
-- <1–3 bullets on what's queued — pulled from PLAN.md / M<next> milestone, not invented>
+- <1–3 bullets on what's queued — based on open PRs, assigned issues, or an explicit note from the author; never invented>
 
 ## Risks / blockers
 
@@ -55,5 +55,5 @@ One command to go from "what did I ship this week" to a committed `docs/weekly-u
 - **Don't re-summarize full commit messages.** One bullet per coherent chunk, Jira-voice — the full commit log is already in git.
 - **Don't include private notes.** If the author uses `/daily-standup` for rough drafts, those are local; the weekly-update is stakeholder-facing. Skip anything that reads like a TODO.
 - **Don't renumber existing files.** If `NN.md` collisions surface (rare — the same week ran twice), ask; never overwrite a prior week's file.
-- **Mirror the repo's milestone labels exactly** — `M3`, `M4`, `M5` — so the update slots into the plan in [PLAN.md](PLAN.md) without translation. If commits span two milestones, use two bullets.
+- **Mirror the repo's scope labels exactly** as they appear in commit subjects (`agent`, `ui`, `evals`, `ci`, …) — no invented scopes. If commits span two scopes, use two bullets.
 - **Risks section is not optional.** Write "none" explicitly if nothing's wrong — an empty bullet list reads as "I forgot to check."

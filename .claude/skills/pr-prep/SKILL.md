@@ -15,7 +15,7 @@ One command to go from a working branch to an open PR. Use it when the feature i
 3. **Staged changes.** If `git status --porcelain` shows unstaged changes from steps 1–2 (ruff reflow), ask whether to add them as a follow-up commit before proceeding. Never auto-amend.
 4. **Code review.** Invoke the `code-reviewer` subagent via the `Agent` tool, passing the output of `git diff main...HEAD` as context and asking for a terse review (correctness, SQL safety, missing tests). Surface the review verbatim to the user — they decide whether to act on it before opening the PR.
 5. **Draft PR title + body.** Read `git log main..HEAD --oneline` for the commit list and `git diff main...HEAD --stat` for the surface area. Draft:
-   - **Title** — scope-prefixed in the repo style: `M3(ui): …`, `M2(agent): …`, etc. Under 70 chars.
+   - **Title** — Conventional Commits style: `feat(ui): …`, `fix(agent): …`, `chore(ci): …`, etc. Under 70 chars.
    - **Body** — a ## Summary section (1–3 bullets on *what* changed and *why*) plus a ## Test plan section (checklist of things a reviewer can verify locally). Mirror the conventions in prior PRs on `main`.
 6. **Push.** If the branch isn't tracking a remote, `git push -u origin HEAD`. Otherwise `git push`. Never force-push without explicit user confirmation.
 7. **Open the PR.** Use `gh pr create --title "<title>" --body "$(cat <<'EOF'`…`EOF`)"` with a heredoc body so Markdown renders correctly. Include the trailing `🤖 Generated with [Claude Code](https://claude.com/claude-code)` footer.

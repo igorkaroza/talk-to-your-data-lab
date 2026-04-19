@@ -4,7 +4,7 @@ Wires the :mod:`genbi.tools` tools onto an in-process SDK MCP server and
 runs a terminal chat loop through :class:`claude_agent_sdk.ClaudeSDKClient`.
 
 Model and prompt are defined here so the CLI, evals, and Streamlit app
-(M3) can import :func:`run_chat` or reuse :data:`OPTIONS` directly.
+can import :func:`run_chat` or reuse :data:`OPTIONS` directly.
 """
 
 from __future__ import annotations
@@ -110,7 +110,7 @@ def _tool_result_event(block: ToolResultBlock, tool_names: dict[str, str]) -> To
 async def stream_turn(client: ClaudeSDKClient, prompt: str) -> AsyncIterator[TurnEvent]:
     """Drive one turn through ``client`` and yield typed events.
 
-    Shared by the CLI and the Streamlit UI (M3) so both consume the same
+    Shared by the CLI and the Streamlit UI so both consume the same
     stream. The generator tracks ``tool_use_id`` → short name so that each
     :class:`ToolResultEvent` carries the name of the tool that produced it.
     """

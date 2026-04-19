@@ -2,6 +2,41 @@
 
 A natural-language → SQL → chart/table/summary chat over PostgreSQL.
 
+## Architecture
+
+```mermaid
+flowchart TB
+    subgraph surfaces["User surfaces"]
+        UI["Streamlit UI<br/>app/streamlit_app.py"]
+        CLI["Terminal CLI<br/>genbi.cli chat"]
+        CC["Claude Code session<br/>/mcp"]
+    end
+
+    subgraph core["Shared agent core (src/genbi/)"]
+        RT["AgentRuntime<br/>(bg thread, ui/runtime.py)"]
+        SDK["ClaudeSDKClient + stream_turn()<br/>agent.py · events.py"]
+    end
+
+    subgraph tools["Tool surfaces"]
+        IN["In-process SDK MCP<br/>@tool wrappers (tools.py)"]
+        STD["Standalone stdio MCP<br/>mcp_servers/postgres_readonly.py"]
+    end
+
+    IMPL["Shared _impl coroutines<br/>schema_introspect · sql_execute · chart_render"]
+    SAFE["safety.py<br/>sqlglot · LIMIT 1000 · 5s timeout"]
+    DB[("PostgreSQL 16<br/>genbi_reader, SELECT-only")]
+
+    UI --> RT --> SDK
+    CLI --> SDK
+    SDK --> IN
+    CC --> STD
+    IN --> IMPL
+    STD --> IMPL
+    IMPL --> SAFE --> DB
+```
+
+The in-process path powers the CLI + Streamlit runtime (no IPC hop). The standalone stdio MCP exposes the same three tools to any Claude Code session in the repo via `.mcp.json`. Both paths share framework-agnostic `_<name>_impl` coroutines and the same read-only role.
+
 ## Stack
 
 - **Python 3.12** + **uv** for env/deps
@@ -82,6 +117,16 @@ CI runs the suite on every PR via [`eval-regression.yml`](.github/workflows/eval
 
 The in-process `@tool` path stays the production surface for the CLI + Streamlit runtime (no IPC hop); the standalone MCP is the learning deliverable and the second tool surface.
 
+## Meta-tooling (the "how Claude Code built this" surface)
+
+Every primitive is wired to a concrete job in this repo — full map in [CLAUDE.md](CLAUDE.md#meta-tooling-map).
+
+- **9 skills** (`.claude/skills/`) — `/seed-data`, `/pr-prep`, `/run-eval`, `/new-question`, `/triage`, `/security-sweep`, `/add-tool`, `/weekly-update`, `/daily-standup`.
+- **7 subagents** (`.claude/agents/`) — `developer`, `code-reviewer` (Opus), `test-writer`, `docs-writer`, `sql-reviewer` (Opus), `chart-designer`, `release-notes`.
+- **4 hooks** (`.claude/settings.json`) — ruff on Write/Edit; advisory `docs-writer` drift check on `tools.py` / `agent.py` / `pyproject.toml`; advisory `code-reviewer` on `git commit`; `pytest -q` on Stop.
+- **5 CI workflows** (`.github/workflows/`) — `claude-review.yml` (AI PR review), `eval-regression.yml` (live eval gate), `nightly-doc-sync.yml` (auto-PR on docs drift), `release-notes.yml` (drafts GitHub Release on tag push), `issue-to-pr.yml` (label `claude-implement` → headless `developer` subagent → draft PR).
+- **Standalone MCP** (`.mcp.json`) — `postgres-readonly` stdio server exposing the same three tools to any Claude Code session in the repo.
+
 ## Tests & lint
 
 ```bash
@@ -96,13 +141,16 @@ Every generated statement is parsed by `sqlglot` and rejected if it isn't a sing
 ## Repo layout
 
 ```
-src/genbi/        # package: db, seed, safety, tools, agent, cli
+src/genbi/        # package: db, seed, safety, tools, agent, events, cli, ui/
 tests/            # pytest suite (unit + integration)
-app/              # Streamlit UI (M3)
-evals/            # regression eval set (M4)
-mcp_servers/      # standalone MCPs (M4)
+app/              # Streamlit UI
+evals/            # questions.yaml + run_evals.py
+mcp_servers/      # postgres_readonly standalone stdio MCP
+docs/             # concept.md, demo-script.md, sdlc-slide.md, weekly-updates/
 .claude/          # skills, subagents, hooks, settings
-.github/workflows # claude-review.yml, eval-regression.yml, nightly-doc-sync.yml
-.mcp.json         # registers postgres-readonly stdio MCP (M4)
+.github/workflows # claude-review, eval-regression, nightly-doc-sync,
+                  # release-notes, issue-to-pr
+.mcp.json         # registers postgres-readonly stdio MCP
+CLAUDE.md         # project conventions — safety rails, commands, model defaults
 docker-compose.yml
 ```

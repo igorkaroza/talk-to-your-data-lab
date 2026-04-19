@@ -38,7 +38,7 @@ Small schema = demo-friendly accuracy. The eval suite would tell us if that ever
 
 ## Hero questions
 
-The two we'll demo in M5, rehearsed end-to-end:
+The two we'll demo, rehearsed end-to-end:
 
 1. **"How many high-priority tickets closed this year grouped by month? Use a chart."** → line chart + one-sentence trend summary.
 2. **"Show revenue by region as a bar chart."** → bar chart + ranked summary.
@@ -58,9 +58,9 @@ Every primitive is wired to a concrete job in this repo — not meta-tooling for
 
 - **`CLAUDE.md`** — project conventions, safety rails, model defaults. Every Claude Code session picks it up.
 - **9 skills** (`.claude/skills/`) — `/seed-data`, `/pr-prep`, `/run-eval`, `/new-question`, `/triage`, `/security-sweep`, `/add-tool`, `/weekly-update`, `/daily-standup`.
-- **6 subagents** (`.claude/agents/`) — `developer`, `code-reviewer`, `test-writer`, `docs-writer`, `sql-reviewer`, `chart-designer`. Opus on the hard-reasoning ones, Sonnet on the rest.
+- **7 subagents** (`.claude/agents/`) — `developer`, `code-reviewer`, `test-writer`, `docs-writer`, `sql-reviewer`, `chart-designer`, `release-notes`. Opus on the hard-reasoning ones, Sonnet on the rest.
 - **4 hooks** (`.claude/settings.json`) — ruff on Write/Edit, advisory docs-drift check, advisory PR review on `git commit`, `pytest -q` on Stop.
-- **3 CI workflows** — `claude-review.yml` (PR review), `eval-regression.yml` (live eval gate, posts pass/fail matrix as a PR comment), `nightly-doc-sync.yml` (auto-PR when docs drift).
+- **5 CI workflows** — `claude-review.yml` (PR review), `eval-regression.yml` (live eval gate, posts pass/fail matrix as a PR comment), `nightly-doc-sync.yml` (auto-PR when docs drift), `release-notes.yml` (drafts the GitHub Release on tag push), `issue-to-pr.yml` (label `claude-implement` → `developer` subagent runs headless → draft PR).
 
 ## Safety model
 

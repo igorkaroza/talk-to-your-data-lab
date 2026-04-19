@@ -76,7 +76,7 @@ Narration:
 
 ### Subagents + hooks (1:45–2:15)
 
-Show `.claude/agents/` — six subagents. Call out:
+Show `.claude/agents/` — seven subagents. Call out:
 - **`code-reviewer`** (Opus) — fires on every PR via `claude-review.yml`, also advisory on local `git commit` via a PreToolUse hook.
 - **`docs-writer`** (Sonnet) — fires on every `tools.py` / `agent.py` edit via a PostToolUse hook, flags drift between code and `CLAUDE.md`.
 - **`sql-reviewer`** (Opus) — called from `/run-eval` and `/security-sweep` with a SQL-correctness lens.
@@ -84,17 +84,20 @@ Show `.claude/agents/` — six subagents. Call out:
 Narration:
 > *"Subagents are specialists with their own tool allow-lists. Hooks wire them into the dev loop — I don't remember to run the reviewer, the hook does."*
 
-### CI — the two hero workflows (2:15–3:00)
+### CI — the hero workflows (2:15–3:00)
 
-Open `.github/workflows/` — three files.
+Open `.github/workflows/` — five files.
 
 - **`eval-regression.yml`** — every PR runs the 12-case suite, posts the Rich matrix as a PR comment, fails the check if pass-rate drops more than 5pp vs. the committed baseline.
 - **`nightly-doc-sync.yml`** — scheduled cron; runs `docs-writer`; if docs drifted, opens an auto-PR titled `chore(docs): nightly drift sync <date>`. A human merges.
+- **`issue-to-pr.yml`** *(live-demo candidate if time allows)* — label an issue `claude-implement` → the `developer` subagent runs headless on Opus, commits a green branch, opens a **draft** PR with `Closes #N`. Human marks it ready-for-review.
+- **`release-notes.yml`** — push a `v*` tag → `release-notes` subagent drafts the GitHub Release body from the tag-to-tag git log + merged PRs, grouped by commit scope. One-liner; mention but don't demo.
+- **`claude-review.yml`** (already covered above) — the AI PR review that fires on every open.
 
 If a broken-on-purpose branch is available, open the PR tab and show the red check + the matrix comment.
 
 Narration (the close):
-> *"We have a PoC, an eval gate that blocks SQL regressions, and a nightly docs-sync PR that keeps the plan and the code from diverging. Five weeks. Most of it authored by Claude Code, reviewed by Claude Code, gated by Claude Code. That's the SDLC story."*
+> *"We have a PoC, an eval gate that blocks SQL regressions, a nightly docs-sync PR that keeps the plan and the code from diverging, and — on the stretch side — an issue-to-PR path that turns a labeled issue into a draft PR without a human opening an editor. Five weeks. Most of it authored by Claude Code, reviewed by Claude Code, gated by Claude Code. That's the SDLC story."*
 
 ## Closing (~30s)
 
@@ -114,7 +117,7 @@ Return to the Streamlit tab. Leave the revenue chart on-screen.
 Priority order for cuts (drop from the bottom first):
 1. Explain button (save 20s)
 2. Hero question 2 (save 60s — but only if the audience has seen chart output elsewhere)
-3. Subagents beat (save 30s — collapse into "and there are six subagents, similar shape")
+3. Subagents beat (save 30s — collapse into "and there are seven subagents, similar shape")
 4. Standalone MCP beat (save 30s — mention it exists, don't demo)
 
 Never cut: the sidebar tool-call trace (explainability), the eval gate (SDLC hero), the closing line.

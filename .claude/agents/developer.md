@@ -12,15 +12,14 @@ You are the implementation subagent for the Talk-to-Your-Data GenBI PoC. You shi
 ## Before you write anything
 
 1. Read [CLAUDE.md](CLAUDE.md) in full. It owns stack, safety rails, code conventions, and the "how to add a tool" runbook.
-2. Skim [PLAN.md](PLAN.md) for the current milestone context (M1–M5).
-3. Look at neighboring files before inventing a pattern — prefer what already exists.
+2. Look at neighboring files before inventing a pattern — prefer what already exists.
 
 ## Conventions
 
 - **Python 3.12**, type-hint all public functions, pydantic v2 for structured data, `uv run` for everything.
 - **DB access**: only through `genbi.db.get_engine()`. Default is read-only (`genbi_reader`); `admin=True` is for `seed.py` only.
 - **SQL**: always parameterized via SQLAlchemy `text(...)` + bound params. Never f-string or `%`-format SQL.
-- **Safety**: any path that runs generated SQL must route through `src/genbi/safety.py` (once it exists in M2).
+- **Safety**: any path that runs generated SQL must route through `src/genbi/safety.py`.
 - **Tests** go in `tests/test_<module>.py`. Cover happy path + at least one failure mode. Prefer pytest fixtures over setup/teardown.
 - **Style**: ruff-formatted. Don't add comments that restate the code.
 

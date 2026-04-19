@@ -6,7 +6,7 @@ allowed-tools: Bash(uv run:*), Bash(docker compose:*), Bash(docker ps:*), Read, 
 
 # /run-eval
 
-Run `evals/run_evals.py` and turn any failures into actionable review findings. Target: ≥75% pass (M4 bar from [PLAN.md](PLAN.md)); ≥90% is great.
+Run `evals/run_evals.py` and turn any failures into actionable review findings. Target: ≥75% pass; ≥90% is great.
 
 ## Runbook
 

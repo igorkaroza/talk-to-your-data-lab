@@ -1,1 +1,1 @@
-"""Streamlit UI helpers for GenBI (M3)."""
+"""Streamlit UI helpers for GenBI."""

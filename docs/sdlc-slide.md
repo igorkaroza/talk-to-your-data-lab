@@ -20,13 +20,14 @@ Each phase below maps to concrete files in this repo — every bullet is somethi
 
 ### PR loop — plan → implement → review → ship (minutes)
 
-- **Subagents** (`.claude/agents/`) — six specialists, each with its own tool allow-list:
+- **Subagents** (`.claude/agents/`) — seven specialists, each with its own tool allow-list:
   - `developer` — end-to-end feature work.
   - `code-reviewer` (Opus) — correctness, SQL safety, test coverage.
   - `test-writer` — happy path + one negative, pytest house style.
   - `docs-writer` — keeps `CLAUDE.md` / `README.md` in sync with code.
   - `sql-reviewer` (Opus) — JOIN correctness, NULL hazards, cardinality risk.
   - `chart-designer` — proposes chart type + encoding from data shape + intent.
+  - `release-notes` — tag-to-tag `git log` + merged PRs → stakeholder Markdown grouped by commit scope.
 - **Skills** (`.claude/skills/`) — nine user-facing commands that encode *this project's* workflow:
   - `/seed-data`, `/run-eval`, `/new-question`, `/pr-prep`, `/triage`, `/security-sweep`, `/add-tool`, `/weekly-update`, `/daily-standup`.
 - **Advisory PreToolUse hook** on `git commit` — `code-reviewer` runs on the staged diff, prints findings, never blocks. Human decides.
@@ -36,6 +37,8 @@ Each phase below maps to concrete files in this repo — every bullet is somethi
 - **`claude-review.yml`** — AI PR review on every pull request.
 - **`eval-regression.yml`** — runs the 12-case eval suite, posts the Rich pass/fail matrix as a PR comment, **fails the check if pass-rate drops >5pp vs. the committed baseline**. SQL quality is now a PR gate.
 - **`nightly-doc-sync.yml`** — scheduled cron; if docs drifted, opens an auto-PR titled `chore(docs): nightly drift sync <date>`. Keeps docs from rotting across a multi-week build.
+- **`issue-to-pr.yml`** — label an issue `claude-implement` (or `@claude` in a comment on a labeled issue) → the `developer` subagent runs headless on Opus, green-tests a branch, opens a **draft** PR with `Closes #N`. Humans mark ready-for-review. The headline "issue becomes a PR" demo.
+- **`release-notes.yml`** — on `v*` tag push, the `release-notes` subagent drafts the GitHub Release body from the tag-to-tag git log + merged PRs. One `gh release create --verify-tag` later, the release is live.
 
 ## Claude SDK — the app side
 
@@ -46,22 +49,12 @@ The PoC itself is a demo of the Claude Agent SDK surface:
 - **`stream_turn()`** — one async generator, two UIs (CLI + Streamlit) consuming the same typed events.
 - **`.mcp.json` + standalone stdio MCP** — the same three tools also expose as `mcp_servers/postgres_readonly.py`, so any Claude Code session in the repo picks them up via `/mcp`. Two tool surfaces, one implementation.
 
-## The numbers (Week 4 snapshot)
+## The numbers
 
-From `docs/sdlc-metrics.csv`:
-
-| week | milestone | commits |
-|------|-----------|---------|
-| 1 | M1 — skeleton + dual-role Postgres | 1 |
-| 2 | M2 — agent + CLI + SQL safety | 6 |
-| 3 | M3 — Streamlit + chart tool + UI trace | 6 |
-| 4 | M4 — evals + standalone MCP + live CI gate | 7 |
-
-(Week 5 row lands post-demo.)
-
-Other signals worth calling out:
+Signals worth calling out:
+- **Scope** — dual-role Postgres, a SELECT-only agent with three tools, a Streamlit UI with live tool-call trace, a 12-case structural eval suite, a standalone stdio MCP, and five CI workflows — all authored with Claude Code.
 - **PR cycle time** — open → merged in under an hour, most PRs. The `code-reviewer` check runs in ~60s; `eval-regression.yml` runs in ~3 min.
-- **Human overrides of AI review** — trended down across M2→M4 as prompts tightened. The reviewer is useful, not yet infallible.
+- **Human overrides of AI review** — trended down week over week as prompts tightened. The reviewer is useful, not yet infallible.
 
 ## The "so what"
 
@@ -78,8 +71,9 @@ Three things to leave the audience with:
 - **Demonstrative.** Every claim has a file path behind it. If a bullet doesn't map to a file, cut it.
 - **Honest about trade-offs.** The app is narrow on purpose (two tables, SQL-only, no RAG). Say so — that's why the demo doesn't flap.
 
-## Stretch goals not in M5 (so the audience knows where it's headed)
+## Where it's headed next
 
-- `issue-to-pr.yml` — label an issue `claude-implement` → `developer` subagent runs headless → draft PR opens. The Week-5 headline if M5 has spare capacity.
-- `release-notes` subagent + workflow — on tag push, drafts the changelog from merged PRs.
-- RLS + per-user auth — the read-only role is enough for a PoC; a real product needs row-level security.
+- **RLS + per-user auth** — the read-only role is enough for a PoC; a real product needs row-level security.
+- **`schema-explorer` subagent** — natural-language schema card auto-refreshed after each reseed; pairs with `/seed-data`.
+- **RAG over unstructured data** — pull in docs + PDFs alongside SQL once the SQL story is boring.
+- **Multi-dataset routing** — one agent, N databases, a router subagent that picks the connection from the question.

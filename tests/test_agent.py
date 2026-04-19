@@ -3,7 +3,7 @@
 Covers the wiring between ``ClaudeSDKClient.receive_response`` and the
 typed event stream — specifically that ``ToolResultBlock``s arriving on
 a ``UserMessage`` (the SDK's synthetic tool-result turn) surface as
-``ToolResultEvent``s with a parsed payload. A regression here in M3
+``ToolResultEvent``s with a parsed payload. A regression here once
 caused the Streamlit UI to render Markdown tables instead of Plotly
 charts because ``render_result_in_chat`` never saw the tool result.
 """

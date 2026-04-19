@@ -1,6 +1,6 @@
 # Project conventions — Talk-to-Your-Data GenBI PoC
 
-A natural-language → SQL → chart/table/summary chat over Postgres. Built as a Claude Code AI adoption training deliverable. Full plan: [PLAN.md](PLAN.md).
+A natural-language → SQL → chart/table/summary chat over Postgres. Built as a Claude Code AI adoption training deliverable.
 
 ## Stack
 
@@ -8,7 +8,7 @@ A natural-language → SQL → chart/table/summary chat over Postgres. Built as 
 - **PostgreSQL 16** in Docker (`docker-compose.yml`) on port **5433**
 - **`claude-agent-sdk`** for the agent runtime
 - **SQLAlchemy 2.x** + `psycopg[binary]` (sync) + **sqlglot** for SQL safety
-- **Streamlit** + **Plotly** for the UI (lands in M3)
+- **Streamlit** + **Plotly** for the UI
 - **Faker** for synthetic data; **pydantic v2** for schemas
 - **ruff** (format + lint), **pytest**
 
@@ -18,9 +18,9 @@ A natural-language → SQL → chart/table/summary chat over Postgres. Built as 
 docker compose up -d postgres      # start Postgres
 uv sync --all-extras               # install runtime + ui + dev
 uv run python -m genbi.seed        # wipe + reseed synthetic data
-uv run python -m genbi.cli chat    # terminal chat against the DB (M2+)
-uv run streamlit run app/streamlit_app.py  # M3+
-uv run python -m evals.run_evals   # eval suite (M4+) — prefer /run-eval
+uv run python -m genbi.cli chat    # terminal chat against the DB
+uv run streamlit run app/streamlit_app.py  # Streamlit UI
+uv run python -m evals.run_evals   # eval suite — prefer /run-eval
 uv run pytest -q                   # run tests
 uv run ruff format . && uv run ruff check --fix .
 ```
@@ -63,15 +63,15 @@ The `/add-tool` skill automates steps 1–3 — use it.
 
 ## Meta-tooling map
 
-- **Skills** (`.claude/skills/`): `seed-data` (M1), `pr-prep` (M3), `run-eval` + `new-question` + `triage` + `security-sweep` (M4), `add-tool` + `weekly-update` + `daily-standup` (M5).
-- **Subagents** (`.claude/agents/`): `developer` + `code-reviewer` (M1), `test-writer` (M2), `docs-writer` (M3), `sql-reviewer` + `chart-designer` (M4), `release-notes` (M5); `schema-explorer` still planned.
+- **Skills** (`.claude/skills/`): `seed-data`, `pr-prep`, `run-eval`, `new-question`, `triage`, `security-sweep`, `add-tool`, `weekly-update`, `daily-standup`.
+- **Subagents** (`.claude/agents/`): `developer`, `code-reviewer`, `test-writer`, `docs-writer`, `sql-reviewer`, `chart-designer`, `release-notes`; `schema-explorer` still planned.
 - **Hooks** (`.claude/settings.json`): ruff on `Write|Edit`, advisory `docs-writer` drift check on `Write|Edit` of `tools.py` / `agent.py` / `pyproject.toml`, advisory `code-reviewer` on `git commit`, `pytest -q` on `Stop`.
-- **MCP** (`.mcp.json`): standalone `postgres-readonly` stdio server (M4) — extracted from the in-process `@tool` surface; any Claude session in this repo picks up the three tools via `/mcp`.
-- **CI** (`.github/workflows/`): `claude-review.yml` (M1), `eval-regression.yml` live gate (M4), `nightly-doc-sync.yml` (M4), `release-notes.yml` + `issue-to-pr.yml` (M5).
+- **MCP** (`.mcp.json`): standalone `postgres-readonly` stdio server — extracted from the in-process `@tool` surface; any Claude session in this repo picks up the three tools via `/mcp`.
+- **CI** (`.github/workflows/`): `claude-review.yml`, `eval-regression.yml` live gate, `nightly-doc-sync.yml`, `release-notes.yml`, `issue-to-pr.yml`.
 
 ## What not to do
 
 - Don't hit the DB with `genbi_admin` from anywhere but `seed.py`.
 - Don't build SQL with f-strings or `%`-formatting — use SQLAlchemy parameters.
 - Don't let subagents write data. They can read, plan, and propose — a human merges.
-- Don't skip the weekly Friday update (`/weekly-update` → `docs/weekly-updates/NN.md`) even if the milestone slipped.
+- Don't skip the weekly Friday update (`/weekly-update` → `docs/weekly-updates/NN.md`) even if the week was light.

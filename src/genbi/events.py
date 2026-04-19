@@ -1,6 +1,6 @@
 """Typed events emitted by :func:`genbi.agent.stream_turn`.
 
-The CLI and the Streamlit UI (M3) both consume this stream, so a single
+The CLI and the Streamlit UI both consume this stream, so a single
 shape describes a turn: assistant text chunks, tool calls with their
 inputs, tool results (parsed JSON when possible), and a terminal summary
 carrying the turn count and dollar cost.

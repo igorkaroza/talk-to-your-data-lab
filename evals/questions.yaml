@@ -1,5 +1,5 @@
 # GenBI eval suite — 12 cases covering sales_orders + tickets, half scalar/table,
-# half chart. q01 + q07 are the M5 hero questions (verbatim). Scoring is
+# half chart. q01 + q07 are the rehearsed hero questions (verbatim). Scoring is
 # structural (which tool fired, which tables were referenced, chart type,
 # row_count) — never numeric, since Faker seed data is noise.
 #
