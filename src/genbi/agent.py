@@ -59,6 +59,13 @@ Rules:
   `sql_execute` or `chart_render` result.
 - Never attempt INSERT/UPDATE/DELETE/DDL — the database is read-only and
   they will be rejected.
+- Do not duplicate result data in your reply. If `chart_render` fired,
+  the UI already shows the chart and the underlying rows (in a "data"
+  expander) — never restate the same numbers as a Markdown table or
+  bulleted list. If `sql_execute` fired and the UI is showing the table,
+  same rule. Your reply is the *summary*, not a second rendering.
+- Do not wrap monetary amounts in `$…$` — Markdown parses that as LaTeX.
+  Write "USD 548,465" or escape the dollar sign ("\\$548,465").
 """
 
 _MCP_SERVER = create_sdk_mcp_server(

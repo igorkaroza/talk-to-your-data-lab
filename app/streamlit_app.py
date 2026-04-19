@@ -24,16 +24,114 @@ from genbi.ui.runtime import DONE_SENTINEL, AgentRuntime
 
 st.set_page_config(page_title="GenBI", layout="wide")
 
+HERO_QUESTIONS = [
+    "How many high-priority tickets closed this year grouped by month? Use a chart.",
+    "Show revenue by region as a bar chart.",
+    "What are the top 5 products by total revenue this year?",
+    "Plot tickets opened per day over the last 30 days as a line chart.",
+    "What's the average order amount by customer region?",
+]
+
+EXPLAIN_PROMPT = (
+    "Explain the chart or table you just rendered in 2-3 sentences. "
+    "Call out the headline insight and one caveat (data range, sample size, "
+    "or anything a reader should be wary of). Do not re-run any SQL."
+)
+
+_STOP_BUTTON_CSS = """
+<style>
+[data-testid="stChatInput"] button[data-testid="stChatInputSubmitButton"] svg,
+[data-testid="stChatInput"] button[kind="chatInputSubmit"] svg {
+  display: none !important;
+}
+[data-testid="stChatInput"] button[data-testid="stChatInputSubmitButton"]::before,
+[data-testid="stChatInput"] button[kind="chatInputSubmit"]::before {
+  content: "";
+  display: block;
+  width: 12px;
+  height: 12px;
+  background: currentColor;
+  border-radius: 2px;
+}
+</style>
+"""
+
+_PAGE_CSS = """
+<style>
+[data-testid="stMainBlockContainer"] {
+  min-height: calc(100vh - 5rem) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  padding-top: 1rem !important;
+  padding-bottom: 0.5rem !important;
+}
+[data-testid="stMainBlockContainer"] > div:first-child,
+[data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlockBorderWrapper"],
+[data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] {
+  flex: 1 1 auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: flex-end !important;
+}
+html body div.st-key-hero-buttons,
+html body div.st-key-hero-buttons > div,
+html body div.st-key-hero-buttons [data-testid="stVerticalBlock"] {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: wrap !important;
+  gap: 0.5rem !important;
+  justify-content: flex-start !important;
+  align-items: flex-start !important;
+  width: 100% !important;
+}
+html body div.st-key-hero-buttons [data-testid="stElementContainer"] {
+  width: auto !important;
+  max-width: 100% !important;
+  flex: 0 0 auto !important;
+  display: inline-flex !important;
+}
+html body div.st-key-hero-buttons .stButton,
+html body div.st-key-hero-buttons .stButton > button {
+  width: auto !important;
+  display: inline-flex !important;
+  white-space: normal !important;
+}
+[data-testid="stSidebar"] [data-testid="stSidebarHeader"] {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 0.75rem 1rem !important;
+}
+[data-testid="stSidebar"] [data-testid="stSidebarHeader"]::before {
+  content: "Tool calls";
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1;
+}
+</style>
+"""
+
 
 @st.cache_resource
 def get_runtime() -> AgentRuntime:
     return AgentRuntime()
 
 
-def _render_event(event: Any, *, turn_id: str, index: int, state: dict[str, Any]) -> None:
+def _render_event(
+    event: Any,
+    *,
+    turn_id: str,
+    index: int,
+    state: dict[str, Any],
+    explain_enabled: bool = False,
+) -> None:
     """Render one event. Intermediate tool results are cleared when a later
     tool result arrives so only the turn's final chart/table stays in chat.
     The sidebar trace (``render_tool_result``) still records every call.
+
+    When ``explain_enabled`` is True (latest assistant turn), an "Explain
+    this" button renders under the final result and queues a follow-up
+    prompt on click.
     """
     if isinstance(event, TextEvent):
         if event.text:
@@ -48,64 +146,109 @@ def _render_event(event: Any, *, turn_id: str, index: int, state: dict[str, Any]
                 prev.empty()
             slot = st.empty()
             with slot.container():
-                render_result_in_chat(event.payload, key_prefix=f"{turn_id}-{index}")
+                explain_key = f"{turn_id}-{index}-explain" if explain_enabled else None
+                clicked = render_result_in_chat(
+                    event.payload,
+                    key_prefix=f"{turn_id}-{index}",
+                    explain_key=explain_key,
+                )
+                if clicked:
+                    st.session_state["pending_prompt"] = EXPLAIN_PROMPT
+                    st.rerun()
             state["result_slot"] = slot
-    elif isinstance(event, DoneEvent):
-        if event.cost_usd is not None:
-            st.caption(f"— {event.num_turns} turn(s), ${event.cost_usd:.4f}")
+    elif isinstance(event, DoneEvent) and event.cost_usd is not None:
+        st.caption(f"— {event.num_turns} turn(s), ${event.cost_usd:.4f}")
 
 
-def _render_turn(turn: dict[str, Any]) -> None:
+def _render_turn(turn: dict[str, Any], *, explain_enabled: bool = False) -> None:
     state: dict[str, Any] = {}
     with st.chat_message(turn["role"]):
         for i, event in enumerate(turn["events"]):
-            _render_event(event, turn_id=turn["id"], index=i, state=state)
+            _render_event(
+                event,
+                turn_id=turn["id"],
+                index=i,
+                state=state,
+                explain_enabled=explain_enabled,
+            )
 
 
 def _drain_turn(q: queue.Queue, turn_id: str) -> list:
     collected: list = []
     state: dict[str, Any] = {}
+    stop_style_slot = st.empty()
+    stop_style_slot.markdown(_STOP_BUTTON_CSS, unsafe_allow_html=True)
+    status_slot = st.empty()
+    status = status_slot.status("thinking…", expanded=False)
     i = 0
-    while True:
-        item = q.get()
-        if item is DONE_SENTINEL:
-            break
-        if isinstance(item, Exception):
-            st.error(f"agent error: {item!r}")
-            collected.append(TextEvent(text=f"[error: {item!r}]"))
-            break
-        collected.append(item)
-        _render_event(item, turn_id=turn_id, index=i, state=state)
-        i += 1
+    try:
+        while True:
+            item = q.get()
+            if item is DONE_SENTINEL:
+                status_slot.empty()
+                break
+            if isinstance(item, Exception):
+                status.update(label=f"error: {item!r}", state="error")
+                st.error(f"agent error: {item!r}")
+                collected.append(TextEvent(text=f"[error: {item!r}]"))
+                break
+            if isinstance(item, ToolUseEvent):
+                status.update(label=f"running {item.name}…")
+            elif isinstance(item, ToolResultEvent):
+                status.update(label=f"processing {item.name}…")
+            collected.append(item)
+            _render_event(item, turn_id=turn_id, index=i, state=state, explain_enabled=True)
+            i += 1
+    finally:
+        stop_style_slot.empty()
     return collected
 
 
+def _latest_assistant_index(turns: list[dict[str, Any]]) -> int | None:
+    for i in range(len(turns) - 1, -1, -1):
+        if turns[i]["role"] == "assistant":
+            return i
+    return None
+
+
+def _render_hero_buttons() -> None:
+    with st.container(key="hero-buttons"):
+        for i, q in enumerate(HERO_QUESTIONS):
+            if st.button(q, key=f"hero-{i}"):
+                st.session_state["pending_prompt"] = q
+                st.rerun()
+
+
 def main() -> None:
-    st.title("GenBI")
-    st.caption("Ask about sales_orders or tickets — answers come with SQL, tables, or charts.")
-    st.sidebar.header("agent trace")
+    st.markdown(_PAGE_CSS, unsafe_allow_html=True)
 
     if "turns" not in st.session_state:
         st.session_state["turns"] = []
 
-    for turn in st.session_state["turns"]:
-        _render_turn(turn)
+    turns = st.session_state["turns"]
+    latest_assistant = _latest_assistant_index(turns)
+    for i, turn in enumerate(turns):
+        _render_turn(turn, explain_enabled=(i == latest_assistant))
 
-    prompt = st.chat_input("ask a question…")
+    if not turns:
+        _render_hero_buttons()
+
+    chat_prompt = st.chat_input("ask a question…")
+    prompt = st.session_state.pop("pending_prompt", None) or chat_prompt
     if not prompt:
         return
 
-    user_id = f"u{len(st.session_state['turns'])}"
+    user_id = f"u{len(turns)}"
     user_turn = {"id": user_id, "role": "user", "events": [TextEvent(text=prompt)]}
-    st.session_state["turns"].append(user_turn)
+    turns.append(user_turn)
     _render_turn(user_turn)
 
     runtime = get_runtime()
     q = runtime.run_turn(prompt)
-    assistant_id = f"a{len(st.session_state['turns'])}"
+    assistant_id = f"a{len(turns)}"
     with st.chat_message("assistant"):
         events = _drain_turn(q, assistant_id)
-    st.session_state["turns"].append({"id": assistant_id, "role": "assistant", "events": events})
+    turns.append({"id": assistant_id, "role": "assistant", "events": events})
 
 
 main()
