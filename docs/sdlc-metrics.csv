@@ -1,3 +1,5 @@
 week,milestone,commits,pr_cycle_time_median_hr,eval_pass_rate_pct,ci_tokens_k,human_overrides,notes
 1,M1,1,,,,,Skeleton landed direct-to-main; Postgres dual-role + /seed-data + developer/code-reviewer subagents + claude-review.yml
 2,M2,6,,,,,Agent + CLI + sqlglot validator + schema_introspect/sql_execute tools; test-writer subagent; eval-regression.yml stub (no cases yet)
+3,M3,6,,,,,Streamlit chat UI + chart_render + agent trace sidebar + CSV export; docs-writer subagent + advisory docs-drift hook; /pr-prep skill; sdlc-metrics.csv seeded
+4,M4,7,,,,,Evals harness (12 cases + structural scoring); standalone Postgres MCP via .mcp.json; sql-reviewer + chart-designer subagents; /run-eval + /new-question + /triage + /security-sweep skills; live eval-regression gate + PR matrix comment; nightly-doc-sync auto-PR workflow. Baseline generation deferred (ANTHROPIC_API_KEY not in local env) — workflow tolerates missing baseline via warning.
