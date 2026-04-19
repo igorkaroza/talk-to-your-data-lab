@@ -67,7 +67,7 @@ The `/add-tool` skill automates steps 1–3 — use it.
 - **Subagents** (`.claude/agents/`): `developer` + `code-reviewer` (M1), `test-writer` (M2), `docs-writer` (M3), `sql-reviewer` + `chart-designer` (M4), `release-notes` (M5); `schema-explorer` still planned.
 - **Hooks** (`.claude/settings.json`): ruff on `Write|Edit`, advisory `docs-writer` drift check on `Write|Edit` of `tools.py` / `agent.py` / `pyproject.toml`, advisory `code-reviewer` on `git commit`, `pytest -q` on `Stop`.
 - **MCP** (`.mcp.json`): standalone `postgres-readonly` stdio server (M4) — extracted from the in-process `@tool` surface; any Claude session in this repo picks up the three tools via `/mcp`.
-- **CI** (`.github/workflows/`): `claude-review.yml` (M1), `eval-regression.yml` live gate (M4), `nightly-doc-sync.yml` (M4), `release-notes.yml` (M5); `issue-to-pr.yml` still planned.
+- **CI** (`.github/workflows/`): `claude-review.yml` (M1), `eval-regression.yml` live gate (M4), `nightly-doc-sync.yml` (M4), `release-notes.yml` + `issue-to-pr.yml` (M5).
 
 ## What not to do
 

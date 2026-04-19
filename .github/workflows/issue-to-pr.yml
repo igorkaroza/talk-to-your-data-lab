@@ -1,0 +1,211 @@
+name: Issue → PR
+
+on:
+  issues:
+    types: [labeled, opened, reopened]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: "Issue number to implement (e.g. 42). Must exist and be open."
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: issue-to-pr-${{ github.event.issue.number || inputs.issue }}
+  cancel-in-progress: false
+
+jobs:
+  # Gate: only fire when the signal is unambiguous. We accept three triggers:
+  #   1. An issue is labeled `claude-implement` (including the initial label-on-open).
+  #   2. An issue already carries the label and a new comment mentions `@claude`.
+  #   3. A manual workflow_dispatch with an issue number.
+  # Everything else (random comments, PR comments, bot labels) short-circuits here.
+  gate:
+    name: Signal check
+    runs-on: ubuntu-latest
+    outputs:
+      go: ${{ steps.check.outputs.go }}
+      issue_number: ${{ steps.check.outputs.issue_number }}
+    steps:
+      - name: Evaluate trigger
+        id: check
+        env:
+          EVENT_NAME:   ${{ github.event_name }}
+          LABEL_NAME:   ${{ github.event.label.name }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          IS_PR:        ${{ github.event.issue.pull_request != null }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          HAS_LABEL:    ${{ contains(github.event.issue.labels.*.name, 'claude-implement') }}
+          INPUT_ISSUE:  ${{ inputs.issue }}
+        run: |
+          go=false
+          issue_number=""
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            go=true
+            issue_number="$INPUT_ISSUE"
+          elif [ "$EVENT_NAME" = "issues" ] && [ "$LABEL_NAME" = "claude-implement" ]; then
+            go=true
+            issue_number="$ISSUE_NUMBER"
+          elif [ "$EVENT_NAME" = "issue_comment" ] \
+            && [ "$IS_PR" = "false" ] \
+            && [ "$HAS_LABEL" = "true" ] \
+            && echo "$COMMENT_BODY" | grep -qi '@claude'; then
+            go=true
+            issue_number="$ISSUE_NUMBER"
+          fi
+          echo "go=$go"                     >> "$GITHUB_OUTPUT"
+          echo "issue_number=$issue_number" >> "$GITHUB_OUTPUT"
+          echo "Gate: event=$EVENT_NAME label=$LABEL_NAME comment_is_pr=$IS_PR has_label=$HAS_LABEL → go=$go"
+
+  implement:
+    name: developer subagent → draft PR
+    needs: gate
+    if: needs.gate.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: genbi_admin
+          POSTGRES_PASSWORD: genbi_admin_pw
+          POSTGRES_DB: genbi
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U genbi_admin -d genbi"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL:          postgresql+psycopg://genbi_admin:genbi_admin_pw@localhost:5432/genbi
+      READONLY_DATABASE_URL: postgresql+psycopg://genbi_reader:genbi_reader_pw@localhost:5432/genbi
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Configure git identity
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install deps (for the dev loop the subagent runs)
+        run: uv sync --all-extras
+
+      - name: Seed Postgres
+        run: uv run python -m genbi.seed
+
+      - name: Compute branch name
+        id: branch
+        env:
+          ISSUE: ${{ needs.gate.outputs.issue_number }}
+        run: |
+          DATE=$(date -u +%Y-%m-%d)
+          BRANCH="claude/issue-${ISSUE}-${DATE}"
+          # Collision guard: if a branch with this name already exists remotely,
+          # append -2, -3, ... . Never force-push.
+          n=2
+          while git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; do
+            BRANCH="claude/issue-${ISSUE}-${DATE}-${n}"
+            n=$((n+1))
+          done
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          echo "Branch: $BRANCH"
+
+      - name: Run developer subagent on the issue
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN:     ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ needs.gate.outputs.issue_number }}
+          BRANCH_NAME:  ${{ steps.branch.outputs.branch }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Opus on this one — implementation across an unknown diff shape is
+          # where the hard-reasoning escalation per CLAUDE.md pays off.
+          claude_args: '{"model": "claude-opus-4-7", "max_turns": 40}'
+          prompt: |
+            You are implementing issue #$ISSUE_NUMBER in the Talk-to-Your-Data
+            GenBI PoC. Read `CLAUDE.md` and `.claude/agents/developer.md` before
+            touching anything — they own the stack, safety rails, and dev-loop.
+
+            Step 1 — read the issue.
+              gh issue view "$ISSUE_NUMBER" --json number,title,body,labels,comments
+              Treat the issue body + comments as the full spec. If the spec is
+              ambiguous or asks for something the safety rails forbid (DML/DDL,
+              `genbi_admin` outside seed.py, bypassing sqlglot), STOP, post a
+              comment on the issue asking for clarification, and exit 0 without
+              opening a PR.
+
+            Step 2 — branch.
+              git switch -c "$BRANCH_NAME"
+              Only work on this branch. Never push to `main`. Never force-push.
+
+            Step 3 — implement via the `developer` subagent.
+              Use the `Agent` tool to run the `developer` subagent
+              (`.claude/agents/developer.md`) with the issue spec as context.
+              Let it follow its standard dev loop: minimum code → test →
+              `uv run pytest -q` → `uv run ruff format . && uv run ruff check --fix .`.
+              If it decides the task genuinely needs a new @tool, a new skill,
+              or a new subagent, let it — those are valid outputs. If it decides
+              the task is out-of-scope or unsafe, accept that verdict and exit
+              without a PR (posting the reasoning as an issue comment).
+
+            Step 4 — local verification before pushing.
+              uv run pytest -q
+              uv run ruff check .
+              If either fails, do NOT push. Post the failure summary as an
+              issue comment and exit 1 — humans decide whether to retry.
+
+            Step 5 — commit + push + draft PR.
+              git add -A <only files the subagent actually changed>
+              git commit -m "feat: implement #$ISSUE_NUMBER — <one-line summary>"
+              git push -u origin "$BRANCH_NAME"
+              gh pr create \
+                --draft \
+                --base main \
+                --head "$BRANCH_NAME" \
+                --title "<repo-style scope-prefixed title, under 70 chars>" \
+                --body-file <file containing: "## Summary" (1-3 bullets), "## Test plan"
+                             (reviewer checklist), "## Linked issue" ("Closes #$ISSUE_NUMBER"),
+                             and a footer noting the subagent authored this PR>
+              gh issue comment "$ISSUE_NUMBER" --body "Draft PR opened: <pr-url>"
+
+            Hard rules:
+              - Always open a DRAFT PR. A human marks ready-for-review.
+              - Never close the issue — the eventual PR merge closes it via
+                the "Closes #N" link.
+              - Never skip hooks (`--no-verify`) or signing.
+              - Never modify workflow files under `.github/workflows/` — that
+                would let an issue rewrite its own gate. If the spec requires
+                a workflow change, STOP and post a comment requesting a human
+                implementation.
+              - Never touch `.eval-baseline.json` — that's promoted by
+                deliberate human action, not implementation work.
+              - Budget: stop at 40 turns. If the subagent can't finish in 40,
+                commit whatever green state exists, push, open the draft PR
+                with a "⚠️ partial implementation" note in the body, and stop.
+
+      - name: Fall-through comment on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE:    ${{ needs.gate.outputs.issue_number }}
+          RUN_URL:  ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue comment "$ISSUE" --body "⚠️ \`issue-to-pr.yml\` failed before opening a PR. Workflow run: $RUN_URL"
