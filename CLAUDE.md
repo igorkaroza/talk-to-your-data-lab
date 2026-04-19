@@ -20,6 +20,7 @@ uv sync --all-extras               # install runtime + ui + dev
 uv run python -m genbi.seed        # wipe + reseed synthetic data
 uv run python -m genbi.cli chat    # terminal chat against the DB (M2+)
 uv run streamlit run app/streamlit_app.py  # M3+
+uv run python -m evals.run_evals   # eval suite (M4+) — prefer /run-eval
 uv run pytest -q                   # run tests
 uv run ruff format . && uv run ruff check --fix .
 ```
@@ -45,8 +46,8 @@ Any change that relaxes these rails must be called out in the PR description.
 
 ## Model defaults
 
-- **`claude-sonnet-4-6`** for the runtime agent and most subagents.
-- **`claude-opus-4-7`** for hard-reasoning subagents: `code-reviewer`, `sql-reviewer`, `chart-designer`.
+- **`claude-sonnet-4-6`** for the runtime agent and most subagents (including `chart-designer` — pattern-match task, not hard reasoning).
+- **`claude-opus-4-7`** for hard-reasoning subagents: `code-reviewer`, `sql-reviewer`.
 - CI workflows pin models explicitly in `claude_args`; never rely on implicit defaults there.
 
 ## How to add a tool
@@ -62,11 +63,11 @@ The `/add-tool` skill automates steps 1–3 — use it.
 
 ## Meta-tooling map
 
-- **Skills** (`.claude/skills/`): `seed-data` (M1), `run-eval`, `new-question`, `add-tool`, `weekly-update`, `pr-prep`, `triage`, `security-sweep`, `daily-standup`.
-- **Subagents** (`.claude/agents/`): `developer`, `code-reviewer` (M1), `test-writer` (M2), `docs-writer`, `sql-reviewer`, `schema-explorer`, `chart-designer`, `release-notes` (staggered M2–M4).
+- **Skills** (`.claude/skills/`): `seed-data` (M1), `pr-prep` (M3), `run-eval` + `new-question` + `triage` + `security-sweep` (M4); `add-tool` + `weekly-update` + `daily-standup` still planned.
+- **Subagents** (`.claude/agents/`): `developer` + `code-reviewer` (M1), `test-writer` (M2), `docs-writer` (M3), `sql-reviewer` + `chart-designer` (M4); `schema-explorer` + `release-notes` still planned.
 - **Hooks** (`.claude/settings.json`): ruff on `Write|Edit`, advisory `docs-writer` drift check on `Write|Edit` of `tools.py` / `agent.py` / `pyproject.toml`, advisory `code-reviewer` on `git commit`, `pytest -q` on `Stop`.
-- **MCP** (`.mcp.json`): standalone `postgres-readonly` extracted from in-process `@tool` in M4.
-- **CI** (`.github/workflows/`): `claude-review.yml` (M1), `eval-regression.yml` (M2 stub → M4 gate), `nightly-doc-sync.yml` + `release-notes.yml` (M4), `issue-to-pr.yml` (M5).
+- **MCP** (`.mcp.json`): standalone `postgres-readonly` stdio server (M4) — extracted from the in-process `@tool` surface; any Claude session in this repo picks up the three tools via `/mcp`.
+- **CI** (`.github/workflows/`): `claude-review.yml` (M1), `eval-regression.yml` live gate (M4), `nightly-doc-sync.yml` (M4); `release-notes.yml` + `issue-to-pr.yml` planned for M5.
 
 ## What not to do
 

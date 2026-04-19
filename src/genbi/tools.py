@@ -5,6 +5,11 @@ read-only role. SQL tools route through :mod:`genbi.safety` before
 execution. Results are serialized as JSON text inside the MCP content
 envelope so the agent can read them verbatim.
 
+The tool bodies live in private ``_*_impl`` coroutines so the standalone
+Postgres MCP in :mod:`mcp_servers.postgres_readonly` can reuse them
+without copying. The ``@tool`` wrappers below are one-liners that shape
+the payload into the in-process SDK MCP envelope.
+
 Registered on the SDK MCP server in :mod:`genbi.agent`.
 """
 
@@ -49,12 +54,7 @@ def _run_select(sql: str) -> tuple[str, list[str], list[list[Any]]]:
     return prepared, columns, rows
 
 
-@tool(
-    "schema_introspect",
-    "Return the schema of all public tables as JSON. Call this first to learn the columns.",
-    {},
-)
-async def schema_introspect(_args: dict[str, Any]) -> dict[str, Any]:
+async def _schema_introspect_impl(_args: dict[str, Any]) -> dict[str, Any]:
     query = text(
         """
         SELECT table_name, column_name, data_type, is_nullable
@@ -73,38 +73,20 @@ async def schema_introspect(_args: dict[str, Any]) -> dict[str, Any]:
                     "nullable": is_nullable == "YES",
                 }
             )
-    payload = {
-        "tables": [{"name": name, "columns": cols} for name, cols in tables.items()],
-    }
-    return _as_content(payload)
+    return {"tables": [{"name": name, "columns": cols} for name, cols in tables.items()]}
 
 
-@tool(
-    "sql_execute",
-    "Run a read-only SELECT. LIMIT is appended if missing; non-SELECT statements are rejected.",
-    {"sql": str},
-)
-async def sql_execute(args: dict[str, Any]) -> dict[str, Any]:
+async def _sql_execute_impl(args: dict[str, Any]) -> dict[str, Any]:
     prepared, columns, rows = _run_select(args["sql"])
-    payload = {
+    return {
         "sql_executed": prepared,
         "columns": columns,
         "rows": rows,
         "row_count": len(rows),
     }
-    return _as_content(payload)
 
 
-@tool(
-    "chart_render",
-    (
-        "Render a Plotly chart from a SELECT result. Use for trend/ranking/breakdown questions. "
-        "chart_type must be one of: bar, line, pie, scatter. For pie, x is the category column "
-        "and y is the numeric column."
-    ),
-    {"sql": str, "chart_type": str, "x": str, "y": str},
-)
-async def chart_render(args: dict[str, Any]) -> dict[str, Any]:
+async def _chart_render_impl(args: dict[str, Any]) -> dict[str, Any]:
     chart_type = args["chart_type"]
     if chart_type not in VALID_CHART_TYPES:
         raise ValueError(
@@ -118,7 +100,7 @@ async def chart_render(args: dict[str, Any]) -> dict[str, Any]:
         fig = px.pie(df, names=x, values=y)
     else:
         fig = getattr(px, chart_type)(df, x=x, y=y)
-    payload = {
+    return {
         "sql_executed": prepared,
         "chart_type": chart_type,
         "columns": columns,
@@ -126,4 +108,34 @@ async def chart_render(args: dict[str, Any]) -> dict[str, Any]:
         "row_count": len(rows),
         "plotly_json": fig.to_json(),
     }
-    return _as_content(payload)
+
+
+@tool(
+    "schema_introspect",
+    "Return the schema of all public tables as JSON. Call this first to learn the columns.",
+    {},
+)
+async def schema_introspect(args: dict[str, Any]) -> dict[str, Any]:
+    return _as_content(await _schema_introspect_impl(args))
+
+
+@tool(
+    "sql_execute",
+    "Run a read-only SELECT. LIMIT is appended if missing; non-SELECT statements are rejected.",
+    {"sql": str},
+)
+async def sql_execute(args: dict[str, Any]) -> dict[str, Any]:
+    return _as_content(await _sql_execute_impl(args))
+
+
+@tool(
+    "chart_render",
+    (
+        "Render a Plotly chart from a SELECT result. Use for trend/ranking/breakdown questions. "
+        "chart_type must be one of: bar, line, pie, scatter. For pie, x is the category column "
+        "and y is the numeric column."
+    ),
+    {"sql": str, "chart_type": str, "x": str, "y": str},
+)
+async def chart_render(args: dict[str, Any]) -> dict[str, Any]:
+    return _as_content(await _chart_render_impl(args))

@@ -1,0 +1,98 @@
+name: Nightly Doc Sync
+
+on:
+  schedule:
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: nightly-doc-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: docs-writer drift check + auto-PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Configure git identity
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Compute sync date
+        id: date
+        run: echo "today=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Run docs-writer and open PR on drift
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SYNC_DATE: ${{ steps.date.outputs.today }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: '{"model": "claude-sonnet-4-6", "max_turns": 15}'
+          prompt: |
+            You are running the nightly docs drift sync for the Talk-to-Your-Data
+            GenBI PoC. Today's date (UTC) is $SYNC_DATE.
+
+            Step 1 — drift report.
+              Invoke the `docs-writer` subagent via the `Agent` tool, with the
+              default rubric from `.claude/agents/docs-writer.md`. Let it
+              produce its standard Markdown report over the current state of
+              `main`. Do not pass a narrower scope — nightly runs audit the
+              full surface.
+
+            Step 2 — branch silently on "no drift".
+              If the report is exactly "No drift detected." (single line), do
+              NOT commit, push, or open a PR. Echo `Nightly doc-sync: no drift`
+              to the workflow log and stop. This is the common case.
+
+            Step 3 — apply the suggested edits verbatim.
+              If the report lists drift under `### Suggested edits (human to
+              apply)`, apply those edits and only those edits with `Edit` /
+              `Write`. Rules:
+                - Only touch files under `CLAUDE.md`, `README.md`, `docs/`.
+                - Do NOT edit anything under `src/`, `tests/`, `app/`,
+                  `evals/`, `mcp_servers/`, or `.github/`.
+                - If a suggestion would require creating a new doc file, skip
+                  it and note the skip in the PR body. Human approves new
+                  docs.
+                - Do not invent edits the subagent did not propose. If you
+                  think of additional drift, write it into the PR body under
+                  "Out of scope for this run" — don't apply it.
+
+            Step 4 — commit + push + PR.
+              If any file was edited in Step 3:
+                git switch -c auto/docs-sync-$SYNC_DATE
+                git add -A <files you touched>
+                git commit -m "chore(docs): nightly drift sync $SYNC_DATE"
+                git push -u origin auto/docs-sync-$SYNC_DATE
+                gh pr create \
+                  --base main \
+                  --head auto/docs-sync-$SYNC_DATE \
+                  --title "chore(docs): nightly drift sync $SYNC_DATE" \
+                  --body-file <file containing: the docs-writer report verbatim, then a "## What was applied" section enumerating the files edited and the one-line change per file>
+              If no file was edited (Step 3 produced no diff), treat it as
+              "no drift" and exit clean per Step 2.
+
+            Hard rules:
+              - Never force-push. If `auto/docs-sync-$SYNC_DATE` already exists
+                remotely, append `-2`, `-3`, etc.
+              - Never push to `main` directly.
+              - Never run tests, evals, ruff, or any uv command — this is a
+                docs-only sync.
+              - If the diff would touch more than 3 files, still open the PR,
+                but add a "⚠️ large diff — human review required" line at the
+                top of the PR body.
