@@ -1,0 +1,101 @@
+name: Release Notes
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to draft release notes for (e.g. v0.4.0). Must already exist."
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: release-notes-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  draft:
+    name: release-notes subagent + GitHub Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout (full history for tag-to-tag diff)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve tag refs
+        id: tags
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            NEW_TAG="${{ inputs.tag }}"
+          else
+            NEW_TAG="${GITHUB_REF_NAME}"
+          fi
+          # Previous tag reachable from NEW_TAG, excluding NEW_TAG itself.
+          PREV_TAG=$(git describe --tags --abbrev=0 "${NEW_TAG}^" 2>/dev/null || echo "")
+          echo "new_tag=${NEW_TAG}"   >> "$GITHUB_OUTPUT"
+          echo "prev_tag=${PREV_TAG}" >> "$GITHUB_OUTPUT"
+          echo "Resolved: prev=${PREV_TAG} new=${NEW_TAG}"
+
+      - name: Draft release notes via release-notes subagent
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEW_TAG:  ${{ steps.tags.outputs.new_tag }}
+          PREV_TAG: ${{ steps.tags.outputs.prev_tag }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: '{"model": "claude-sonnet-4-6", "max_turns": 15}'
+          prompt: |
+            You are drafting release notes for the Talk-to-Your-Data GenBI PoC.
+
+            Inputs:
+              new_tag  = $NEW_TAG
+              prev_tag = $PREV_TAG  (empty means first release — use the root commit)
+
+            Step 1 — invoke the subagent.
+              Use the `Agent` tool to run the `release-notes` subagent defined in
+              `.claude/agents/release-notes.md`. Pass `new_tag` and `prev_tag` in
+              the prompt so it resolves the range correctly. Let it produce its
+              standard Markdown body per the template in that file. Do NOT
+              second-guess its bucketing — if the subagent groups everything
+              under `Housekeeping`, publish that verbatim.
+
+            Step 2 — write the body to a file.
+              Save the subagent's full Markdown output to /tmp/release-body.md
+              exactly as returned — no header mangling, no reformatting.
+
+            Step 3 — publish or update the GitHub Release.
+              If a release for $NEW_TAG already exists:
+                gh release edit "$NEW_TAG" --notes-file /tmp/release-body.md
+              Otherwise:
+                gh release create "$NEW_TAG" \
+                  --title "$NEW_TAG" \
+                  --notes-file /tmp/release-body.md \
+                  --verify-tag
+              Always use `--verify-tag` on create so a misnamed tag fails fast.
+
+            Step 4 — log the URL.
+              Echo `gh release view "$NEW_TAG" --json url --jq .url` to the
+              workflow log so the release URL shows up in the run summary.
+
+            Hard rules:
+              - Do NOT create or move any git tag. The tag already exists; you
+                are only drafting notes against it.
+              - Do NOT push to `main` or any branch. `gh release` writes are the
+                only mutations allowed.
+              - Do NOT run tests, evals, ruff, or any `uv` command — this is a
+                notes-only workflow.
+              - If the subagent returns `No commits in range.`, create the
+                release with exactly that body. Don't invent content.
+              - If `gh release` fails (auth, rate limit, tag mismatch), surface
+                the stderr verbatim and exit non-zero. Don't retry more than
+                once.
