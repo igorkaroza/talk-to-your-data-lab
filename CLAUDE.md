@@ -15,6 +15,7 @@ A natural-language → SQL → chart/table/summary chat over Postgres. Built as 
 ## Commands
 
 ```bash
+cp .env.example .env               # fill ANTHROPIC_API_KEY before first run
 docker compose up -d postgres      # start Postgres
 uv sync --all-extras               # install runtime + ui + dev
 uv run python -m genbi.seed        # wipe + reseed synthetic data
@@ -25,7 +26,9 @@ uv run pytest -q                   # run tests
 uv run ruff format . && uv run ruff check --fix .
 ```
 
-Skills also expose these as slash commands — prefer `/seed-data`, `/run-eval`, `/pr-prep` once they exist.
+Skills expose the common workflows as slash commands — prefer `/seed-data`, `/run-eval`, `/pr-prep`, `/add-tool`, `/new-question`, `/triage`, `/security-sweep` over raw CLI invocations.
+
+Any Claude session opened in this repo auto-loads the standalone `postgres-readonly` MCP via `.mcp.json` — `/mcp` lists `schema_introspect`, `sql_execute`, `chart_render` side-by-side with the in-process tool surface.
 
 ## Safety rails (non-negotiable)
 
@@ -43,6 +46,7 @@ Any change that relaxes these rails must be called out in the PR description.
 - Type-hint all public functions. Use pydantic models for any structured data crossing a tool or API boundary.
 - Don't catch `Exception` broadly — let Postgres / validator errors surface to the agent so it can retry.
 - Tests go in `tests/`, named `test_<module>.py`. Integration tests that need Postgres assume `docker compose up` has run.
+- Streamlit reruns the script on every interaction; the `ClaudeSDKClient` lives on a background thread via `src/genbi/ui/runtime.py` so conversation memory survives reruns. Don't instantiate the client inside a Streamlit callback.
 
 ## Model defaults
 
@@ -74,4 +78,3 @@ The `/add-tool` skill automates steps 1–3 — use it.
 - Don't hit the DB with `genbi_admin` from anywhere but `seed.py`.
 - Don't build SQL with f-strings or `%`-formatting — use SQLAlchemy parameters.
 - Don't let subagents write data. They can read, plan, and propose — a human merges.
-- Don't skip the weekly Friday update (`/weekly-update` → `docs/weekly-updates/NN.md`) even if the week was light.
