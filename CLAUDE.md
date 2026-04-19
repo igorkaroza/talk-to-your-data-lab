@@ -63,7 +63,7 @@ The `/add-tool` skill automates steps 1–3 — use it.
 
 ## Meta-tooling map
 
-- **Skills** (`.claude/skills/`): `seed-data` (M1), `pr-prep` (M3), `run-eval` + `new-question` + `triage` + `security-sweep` (M4); `add-tool` + `weekly-update` + `daily-standup` still planned.
+- **Skills** (`.claude/skills/`): `seed-data` (M1), `pr-prep` (M3), `run-eval` + `new-question` + `triage` + `security-sweep` (M4), `add-tool` + `weekly-update` + `daily-standup` (M5).
 - **Subagents** (`.claude/agents/`): `developer` + `code-reviewer` (M1), `test-writer` (M2), `docs-writer` (M3), `sql-reviewer` + `chart-designer` (M4); `schema-explorer` + `release-notes` still planned.
 - **Hooks** (`.claude/settings.json`): ruff on `Write|Edit`, advisory `docs-writer` drift check on `Write|Edit` of `tools.py` / `agent.py` / `pyproject.toml`, advisory `code-reviewer` on `git commit`, `pytest -q` on `Stop`.
 - **MCP** (`.mcp.json`): standalone `postgres-readonly` stdio server (M4) — extracted from the in-process `@tool` surface; any Claude session in this repo picks up the three tools via `/mcp`.
