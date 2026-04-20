@@ -57,8 +57,8 @@ The app is ~800 lines of Python; the SDK does the heavy lifting.
 Every primitive is wired to a concrete job in this repo — not meta-tooling for its own sake.
 
 - **`CLAUDE.md`** — project conventions, safety rails, model defaults. Every Claude Code session picks it up.
-- **9 skills** (`.claude/skills/`) — `/seed-data`, `/pr-prep`, `/run-eval`, `/new-question`, `/triage`, `/security-sweep`, `/add-tool`, `/weekly-update`, `/daily-standup`.
-- **7 subagents** (`.claude/agents/`) — `developer`, `code-reviewer`, `test-writer`, `docs-writer`, `sql-reviewer`, `chart-designer`, `release-notes`. Opus on the hard-reasoning ones, Sonnet on the rest.
+- **7 skills** (`.claude/skills/`) — `/seed-data`, `/pr-prep`, `/run-eval`, `/new-question`, `/add-tool`, `/weekly-update`, `/daily-standup`.
+- **6 subagents** (`.claude/agents/`) — `developer`, `code-reviewer`, `test-writer`, `docs-writer`, `sql-reviewer`, `release-notes`. Opus on the hard-reasoning ones, Sonnet on the rest.
 - **4 hooks** (`.claude/settings.json`) — ruff on Write/Edit, advisory docs-drift check, advisory PR review on `git commit`, `pytest -q` on Stop.
 - **5 CI workflows** — `claude-review.yml` (PR review), `eval-regression.yml` (live eval gate, posts pass/fail matrix as a PR comment), `nightly-doc-sync.yml` (auto-PR when docs drift), `release-notes.yml` (drafts the GitHub Release on tag push), `issue-to-pr.yml` (label `claude-implement` → `developer` subagent runs headless → draft PR).
 

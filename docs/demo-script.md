@@ -76,10 +76,10 @@ Narration:
 
 ### Subagents + hooks (1:45–2:15)
 
-Show `.claude/agents/` — seven subagents. Call out:
+Show `.claude/agents/` — six subagents. Call out:
 - **`code-reviewer`** (Opus) — fires on every PR via `claude-review.yml`, also advisory on local `git commit` via a PreToolUse hook.
 - **`docs-writer`** (Sonnet) — fires on every `tools.py` / `agent.py` edit via a PostToolUse hook, flags drift between code and `CLAUDE.md`.
-- **`sql-reviewer`** (Opus) — called from `/run-eval` and `/security-sweep` with a SQL-correctness lens.
+- **`sql-reviewer`** (Opus) — called from `/run-eval` with a SQL-correctness lens.
 
 Narration:
 > *"Subagents are specialists with their own tool allow-lists. Hooks wire them into the dev loop — I don't remember to run the reviewer, the hook does."*

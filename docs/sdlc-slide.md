@@ -20,16 +20,15 @@ Each phase below maps to concrete files in this repo — every bullet is somethi
 
 ### PR loop — plan → implement → review → ship (minutes)
 
-- **Subagents** (`.claude/agents/`) — seven specialists, each with its own tool allow-list:
+- **Subagents** (`.claude/agents/`) — six specialists, each with its own tool allow-list:
   - `developer` — end-to-end feature work.
   - `code-reviewer` (Opus) — correctness, SQL safety, test coverage.
   - `test-writer` — happy path + one negative, pytest house style.
   - `docs-writer` — keeps `CLAUDE.md` / `README.md` in sync with code.
   - `sql-reviewer` (Opus) — JOIN correctness, NULL hazards, cardinality risk.
-  - `chart-designer` — proposes chart type + encoding from data shape + intent.
   - `release-notes` — tag-to-tag `git log` + merged PRs → stakeholder Markdown grouped by commit scope.
-- **Skills** (`.claude/skills/`) — nine user-facing commands that encode *this project's* workflow:
-  - `/seed-data`, `/run-eval`, `/new-question`, `/pr-prep`, `/triage`, `/security-sweep`, `/add-tool`, `/weekly-update`, `/daily-standup`.
+- **Skills** (`.claude/skills/`) — seven user-facing commands that encode *this project's* workflow:
+  - `/seed-data`, `/run-eval`, `/new-question`, `/pr-prep`, `/add-tool`, `/weekly-update`, `/daily-standup`.
 - **Advisory PreToolUse hook** on `git commit` — `code-reviewer` runs on the staged diff, prints findings, never blocks. Human decides.
 
 ### CI/CD — automated gates (every PR, every night)

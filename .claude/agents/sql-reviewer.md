@@ -1,6 +1,6 @@
 ---
 name: sql-reviewer
-description: Use proactively to review a generated SQL statement for correctness and safety. Flags join hazards, NULL/coalesce issues, cardinality risk, missing LIMIT, timezone edges, and implicit casts. Invoked by the /run-eval skill on failing cases and by /security-sweep. Reports only — never rewrites SQL.
+description: Use proactively to review a generated SQL statement for correctness and safety. Flags join hazards, NULL/coalesce issues, cardinality risk, missing LIMIT, timezone edges, and implicit casts. Invoked by the /run-eval skill on failing cases. Reports only — never rewrites SQL.
 model: opus
 tools: Read, Glob, Grep
 ---
