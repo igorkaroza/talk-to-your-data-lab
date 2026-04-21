@@ -81,6 +81,58 @@ RESOLVED_RATIO = 0.8
 
 READER_ROLE = "genbi_reader"
 
+# In-DB comments surfaced via `schema_introspect` — the agent reads these to
+# pick the right column, avoid ambiguous joins, and remember enum value lists
+# without us restating them in the system prompt.
+TABLE_COMMENTS: dict[str, str] = {
+    "sales_orders": ("Sales orders, one row per line item. amount = quantity * unit_price."),
+    "tickets": (
+        "Support tickets, one row per ticket. Unresolved tickets have "
+        "resolved_at IS NULL and resolution_hours IS NULL."
+    ),
+}
+
+COLUMN_COMMENTS: dict[str, dict[str, str]] = {
+    "sales_orders": {
+        "order_id": "Primary key.",
+        "order_date": "Date the order was placed.",
+        "customer": (
+            "Free-text customer/company name. Not a foreign key; duplicates "
+            "across orders are expected."
+        ),
+        "product": (
+            "Product name. Hero products (Aurora Laptop, Trail Tent) ship in "
+            "larger quantities than the rest — expect them near the top of "
+            "ranking/volume queries."
+        ),
+        "category": "One of: Electronics, Home, Outdoor, Apparel.",
+        "region": "One of: North, South, East, West, Central.",
+        "quantity": "Units sold on this line.",
+        "unit_price": "Price per unit at the time of sale.",
+        "amount": ("Line total = quantity * unit_price. Use this column for revenue/sales totals."),
+    },
+    "tickets": {
+        "ticket_id": "Primary key.",
+        "created_at": "Timestamp the ticket was opened (with timezone).",
+        "resolved_at": (
+            "Timestamp the ticket was resolved. NULL when status is Open or In Progress."
+        ),
+        "category": "Issue area: one of Network, Auth, Billing, Performance, Data, UI.",
+        "priority": "One of: Low, Medium, High, Critical.",
+        "assigned_team": (
+            "One of: Platform, AppOps, Data, Security, Support. The Support "
+            "team resolves noticeably slower than the others — average "
+            "resolution_hours is ~60% higher."
+        ),
+        "status": (
+            "One of: Open, In Progress, Resolved, Closed. Unresolved = (Open, In Progress)."
+        ),
+        "resolution_hours": (
+            "Hours from created_at to resolved_at. NULL when the ticket is still unresolved."
+        ),
+    },
+}
+
 
 def _reset_tables(engine: Engine) -> None:
     with engine.begin() as conn:
@@ -159,6 +211,30 @@ def _insert(engine: Engine, table: str, rows: list[dict]) -> None:
         conn.execute(stmt, rows)
 
 
+def _apply_comments(engine: Engine) -> None:
+    # COMMENT ON ... does not accept bind parameters; psycopg.sql composables
+    # give us safe identifier + literal quoting.
+    with engine.begin() as conn:
+        raw = conn.connection.driver_connection
+        with raw.cursor() as cur:
+            for table, comment in TABLE_COMMENTS.items():
+                cur.execute(
+                    pg_sql.SQL("COMMENT ON TABLE {tbl} IS {txt}").format(
+                        tbl=pg_sql.Identifier(table),
+                        txt=pg_sql.Literal(comment),
+                    )
+                )
+            for table, cols in COLUMN_COMMENTS.items():
+                for col, comment in cols.items():
+                    cur.execute(
+                        pg_sql.SQL("COMMENT ON COLUMN {tbl}.{col} IS {txt}").format(
+                            tbl=pg_sql.Identifier(table),
+                            col=pg_sql.Identifier(col),
+                            txt=pg_sql.Literal(comment),
+                        )
+                    )
+
+
 def _provision_reader(engine: Engine, password: str) -> None:
     role = pg_sql.Identifier(READER_ROLE)
     pw = pg_sql.Literal(password)
@@ -232,6 +308,9 @@ def main(*, sales_rows: int = 2_000, ticket_rows: int = 1_200, seed: int = 42) -
     print(f"[seed] inserting {sales_rows} sales_orders, {ticket_rows} tickets...")
     _insert(engine, "sales_orders", _gen_sales(faker, sales_rows))
     _insert(engine, "tickets", _gen_tickets(faker, ticket_rows))
+
+    print("[seed] applying table/column comments...")
+    _apply_comments(engine)
 
     print(f"[seed] provisioning {READER_ROLE} role (SELECT-only)...")
     _provision_reader(engine, _reader_password())

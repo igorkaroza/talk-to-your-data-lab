@@ -55,25 +55,60 @@ def _run_select(sql: str) -> tuple[str, list[str], list[list[Any]]]:
 
 
 async def _schema_introspect_impl(_args: dict[str, Any]) -> dict[str, Any]:
+    # Pull table + column descriptions from pg_catalog so the agent can read
+    # the in-DB comments set by genbi.seed._apply_comments. The regclass cast
+    # uses quote_ident to stay safe under mixed-case or quoted table names.
     query = text(
         """
-        SELECT table_name, column_name, data_type, is_nullable
-        FROM information_schema.columns
-        WHERE table_schema = 'public'
-        ORDER BY table_name, ordinal_position
+        SELECT
+            c.table_name,
+            c.column_name,
+            c.data_type,
+            c.is_nullable,
+            col_description(
+                (quote_ident(c.table_schema) || '.' || quote_ident(c.table_name))::regclass,
+                c.ordinal_position
+            ) AS column_description,
+            obj_description(
+                (quote_ident(c.table_schema) || '.' || quote_ident(c.table_name))::regclass,
+                'pg_class'
+            ) AS table_description
+        FROM information_schema.columns c
+        WHERE c.table_schema = 'public'
+        ORDER BY c.table_name, c.ordinal_position
         """
     )
-    tables: dict[str, list[dict[str, Any]]] = {}
+    tables: dict[str, dict[str, Any]] = {}
     with get_engine().connect() as conn:
-        for table_name, column_name, data_type, is_nullable in conn.execute(query):
-            tables.setdefault(table_name, []).append(
-                {
-                    "name": column_name,
-                    "type": data_type,
-                    "nullable": is_nullable == "YES",
-                }
+        for (
+            table_name,
+            column_name,
+            data_type,
+            is_nullable,
+            column_description,
+            table_description,
+        ) in conn.execute(query):
+            entry = tables.setdefault(
+                table_name,
+                {"description": table_description or None, "columns": []},
             )
-    return {"tables": [{"name": name, "columns": cols} for name, cols in tables.items()]}
+            column: dict[str, Any] = {
+                "name": column_name,
+                "type": data_type,
+                "nullable": is_nullable == "YES",
+            }
+            if column_description:
+                column["description"] = column_description
+            entry["columns"].append(column)
+
+    def _format(name: str, entry: dict[str, Any]) -> dict[str, Any]:
+        out: dict[str, Any] = {"name": name}
+        if entry["description"]:
+            out["description"] = entry["description"]
+        out["columns"] = entry["columns"]
+        return out
+
+    return {"tables": [_format(name, entry) for name, entry in tables.items()]}
 
 
 async def _sql_execute_impl(args: dict[str, Any]) -> dict[str, Any]:
