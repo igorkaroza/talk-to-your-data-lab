@@ -73,24 +73,24 @@ def _render_action_row(
     if not has_csv and explain_key is None:
         return False
     n_btns = int(has_csv) + int(explain_key is not None)
-    ratios = [12 - n_btns] + [1] * n_btns
-    cols = st.columns(ratios)
-    slot = 1
+    outer = st.columns([20, n_btns])
+    inner = outer[1].columns(n_btns)
+    slot = 0
     if has_csv:
-        with cols[slot]:
+        with inner[slot]:
             st.download_button(
-                "CSV",
+                "\u2193",
                 df.to_csv(index=False).encode("utf-8"),
                 file_name="result.csv",
                 mime="text/csv",
                 key=f"{key_prefix}-csv",
-                use_container_width=True,
+                help="Download CSV",
             )
         slot += 1
     clicked = False
     if explain_key is not None:
-        with cols[slot]:
-            if st.button("Explain", key=explain_key, use_container_width=True):
+        with inner[slot]:
+            if st.button("\u2726", key=explain_key, help="Explain this result"):
                 clicked = True
     return clicked
 

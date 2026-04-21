@@ -2,6 +2,20 @@
 
 The live walkthrough for Jira Task 3. Two beats: **"look what the app does"** (~2 min) and **"look how Claude Code built it"** (~3 min). Rehearse twice before each demo — the value is in the rhythm, not the surprise.
 
+---
+
+## Business context
+
+**Problem:** Non-technical stakeholders (ops, PMs, finance) can't query data themselves — every ad-hoc question becomes a ticket to the data team.
+
+**What GenBI does:** Ask a question in plain English, get a chart or table back. The agent writes the SQL, runs it through a read-only role, and renders the result. Every query is visible in the sidebar — nothing is hidden.
+
+**Target audience:** Operations leads, PMs, and finance/RevOps who own the analytics request queue and want to reduce back-and-forth with the data team.
+
+**Training angle:** This PoC also demonstrates that Claude Code can author, evaluate, and gate an agentic feature end-to-end — eval suite, safety layer, CI gate, and developer workflows included. Beat 1 is for business stakeholders; Beat 2 is for engineering leadership.
+
+---
+
 ## Setup (before the audience joins)
 
 ```bash

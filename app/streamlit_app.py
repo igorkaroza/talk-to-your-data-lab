@@ -9,10 +9,14 @@ queue and rendered progressively; past turns replay from
 
 from __future__ import annotations
 
+import importlib
 import queue
 from typing import Any
 
 import streamlit as st
+
+import genbi.ui.render as _render_mod
+importlib.reload(_render_mod)
 
 from genbi.events import DoneEvent, TextEvent, ToolResultEvent, ToolUseEvent
 from genbi.ui.render import (
@@ -58,20 +62,15 @@ _STOP_BUTTON_CSS = """
 
 _PAGE_CSS = """
 <style>
-[data-testid="stMainBlockContainer"] {
-  min-height: calc(100vh - 5rem) !important;
-  display: flex !important;
-  flex-direction: column !important;
-  padding-top: 1rem !important;
-  padding-bottom: 0.5rem !important;
+[data-testid="stHeader"] {
+  display: none !important;
 }
-[data-testid="stMainBlockContainer"] > div:first-child,
-[data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlockBorderWrapper"],
-[data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] {
-  flex: 1 1 auto !important;
-  display: flex !important;
-  flex-direction: column !important;
-  justify-content: flex-end !important;
+[data-testid="stAppViewContainer"] {
+  top: 0 !important;
+}
+[data-testid="stMainBlockContainer"] {
+  padding-top: 1rem !important;
+  padding-bottom: 9rem !important;
 }
 html body div.st-key-hero-buttons,
 html body div.st-key-hero-buttons > div,
@@ -107,6 +106,49 @@ html body div.st-key-hero-buttons .stButton > button {
   font-size: 1.25rem;
   font-weight: 600;
   line-height: 1;
+}
+/* Inline the st.status spinner — drop border/background so "thinking…" */
+/* sits flush with the robot avatar. Scoped via the st-key-thinking-   */
+/* status container key so it does not flatten the "data" expander     */
+/* inside chart results.                                               */
+div.st-key-thinking-status {
+  gap: 0 !important;
+}
+div.st-key-thinking-status [data-testid="stExpander"],
+div.st-key-thinking-status [data-testid="stExpander"] > details {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+div.st-key-thinking-status [data-testid="stExpander"] summary {
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  min-height: 32px;
+  align-items: center;
+}
+</style>
+"""
+
+# Only applied on the empty-state (no turns, no queued prompt). The flex
+# layout pushes the hero buttons to sit just above the sticky chat input.
+# It conflicts with padding-bottom once real content is rendered, so we
+# drop it as soon as the first turn lands.
+_EMPTY_STATE_CSS = """
+<style>
+[data-testid="stMainBlockContainer"] {
+  min-height: calc(100vh - 5rem) !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+[data-testid="stMainBlockContainer"] > div:first-child,
+[data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlockBorderWrapper"],
+[data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] {
+  flex: 1 1 auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: flex-end !important;
 }
 </style>
 """
@@ -176,10 +218,11 @@ def _render_turn(turn: dict[str, Any], *, explain_enabled: bool = False) -> None
 def _drain_turn(q: queue.Queue, turn_id: str) -> list:
     collected: list = []
     state: dict[str, Any] = {}
-    stop_style_slot = st.empty()
-    stop_style_slot.markdown(_STOP_BUTTON_CSS, unsafe_allow_html=True)
-    status_slot = st.empty()
-    status = status_slot.status("thinking…", expanded=False)
+    with st.container(key="thinking-status"):
+        stop_style_slot = st.empty()
+        stop_style_slot.markdown(_STOP_BUTTON_CSS, unsafe_allow_html=True)
+        status_slot = st.empty()
+        status = status_slot.status("thinking…", expanded=False)
     i = 0
     try:
         while True:
@@ -226,29 +269,34 @@ def main() -> None:
         st.session_state["turns"] = []
 
     turns = st.session_state["turns"]
+    if not turns and st.session_state.get("pending_prompt") is None:
+        st.markdown(_EMPTY_STATE_CSS, unsafe_allow_html=True)
     latest_assistant = _latest_assistant_index(turns)
     for i, turn in enumerate(turns):
         _render_turn(turn, explain_enabled=(i == latest_assistant))
+
+    prompt = st.session_state.pop("pending_prompt", None)
+
+    if prompt:
+        user_id = f"u{len(turns)}"
+        user_turn = {"id": user_id, "role": "user", "events": [TextEvent(text=prompt)]}
+        turns.append(user_turn)
+        _render_turn(user_turn)
+
+        runtime = get_runtime()
+        q = runtime.run_turn(prompt)
+        assistant_id = f"a{len(turns)}"
+        with st.chat_message("assistant"):
+            events = _drain_turn(q, assistant_id)
+        turns.append({"id": assistant_id, "role": "assistant", "events": events})
 
     if not turns:
         _render_hero_buttons()
 
     chat_prompt = st.chat_input("ask a question…")
-    prompt = st.session_state.pop("pending_prompt", None) or chat_prompt
-    if not prompt:
-        return
-
-    user_id = f"u{len(turns)}"
-    user_turn = {"id": user_id, "role": "user", "events": [TextEvent(text=prompt)]}
-    turns.append(user_turn)
-    _render_turn(user_turn)
-
-    runtime = get_runtime()
-    q = runtime.run_turn(prompt)
-    assistant_id = f"a{len(turns)}"
-    with st.chat_message("assistant"):
-        events = _drain_turn(q, assistant_id)
-    turns.append({"id": assistant_id, "role": "assistant", "events": events})
+    if chat_prompt:
+        st.session_state["pending_prompt"] = chat_prompt
+        st.rerun()
 
 
 main()
