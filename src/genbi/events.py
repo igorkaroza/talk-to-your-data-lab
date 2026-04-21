@@ -36,6 +36,10 @@ class DoneEvent(BaseModel):
     kind: Literal["done"] = "done"
     num_turns: int
     cost_usd: float | None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    cache_read_tokens: int | None = None
+    cache_creation_tokens: int | None = None
 
 
 TurnEvent = TextEvent | ToolUseEvent | ToolResultEvent | DoneEvent

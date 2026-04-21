@@ -131,9 +131,14 @@ async def stream_turn(client: ClaudeSDKClient, prompt: str) -> AsyncIterator[Tur
                     if isinstance(block, ToolResultBlock):
                         yield _tool_result_event(block, tool_names)
         elif isinstance(message, ResultMessage):
+            usage = message.usage or {}
             yield DoneEvent(
                 num_turns=message.num_turns,
                 cost_usd=message.total_cost_usd,
+                input_tokens=usage.get("input_tokens"),
+                output_tokens=usage.get("output_tokens"),
+                cache_read_tokens=usage.get("cache_read_input_tokens"),
+                cache_creation_tokens=usage.get("cache_creation_input_tokens"),
             )
 
 
@@ -170,6 +175,26 @@ def _render_tool_result(console: Console, event: ToolResultEvent) -> None:
     console.print(f"{marker} {summary}")
 
 
+def format_done(event: DoneEvent) -> str | None:
+    """Build the status-line string for a terminal :class:`DoneEvent`.
+
+    Returns ``None`` when there is nothing meaningful to show (both cost and
+    token counts missing). The cache-tokens tail only appears when at least one
+    of the read/creation counters is positive — so the line stays quiet on the
+    first turn, and lights up once prompt caching starts paying off.
+    """
+    if event.cost_usd is None and event.input_tokens is None:
+        return None
+    parts: list[str] = [f"{event.num_turns} turn(s)"]
+    if event.cost_usd is not None:
+        parts.append(f"${event.cost_usd:.4f}")
+    cache_read = event.cache_read_tokens or 0
+    cache_new = event.cache_creation_tokens or 0
+    if cache_read or cache_new:
+        parts.append(f"cache: {cache_read} read / {cache_new} new")
+    return "— " + ", ".join(parts)
+
+
 async def _run_turn(client: ClaudeSDKClient, console: Console, prompt: str) -> None:
     async for event in stream_turn(client, prompt):
         if isinstance(event, TextEvent):
@@ -178,8 +203,10 @@ async def _run_turn(client: ClaudeSDKClient, console: Console, prompt: str) -> N
             _render_tool_use(console, event)
         elif isinstance(event, ToolResultEvent):
             _render_tool_result(console, event)
-        elif isinstance(event, DoneEvent) and event.cost_usd is not None:
-            console.print(f"[dim]— {event.num_turns} turn(s), ${event.cost_usd:.4f}[/dim]")
+        elif isinstance(event, DoneEvent):
+            line = format_done(event)
+            if line is not None:
+                console.print(f"[dim]{line}[/dim]")
 
 
 async def run_chat() -> None:

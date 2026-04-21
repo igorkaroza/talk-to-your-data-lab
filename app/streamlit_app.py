@@ -16,6 +16,7 @@ from typing import Any
 import streamlit as st
 
 import genbi.ui.render as _render_mod
+
 importlib.reload(_render_mod)
 
 from genbi.events import DoneEvent, TextEvent, ToolResultEvent, ToolUseEvent
@@ -198,8 +199,10 @@ def _render_event(
                     st.session_state["pending_prompt"] = EXPLAIN_PROMPT
                     st.rerun()
             state["result_slot"] = slot
-    elif isinstance(event, DoneEvent) and event.cost_usd is not None:
-        st.caption(f"— {event.num_turns} turn(s), ${event.cost_usd:.4f}")
+    elif isinstance(event, DoneEvent):
+        line = format_done(event)
+        if line is not None:
+            st.caption(line)
 
 
 def _render_turn(turn: dict[str, Any], *, explain_enabled: bool = False) -> None:

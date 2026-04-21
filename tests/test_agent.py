@@ -23,8 +23,8 @@ from claude_agent_sdk import (
     UserMessage,
 )
 
-from genbi.agent import stream_turn
-from genbi.events import TextEvent, ToolResultEvent, ToolUseEvent
+from genbi.agent import format_done, stream_turn
+from genbi.events import DoneEvent, TextEvent, ToolResultEvent, ToolUseEvent
 
 
 class _FakeClient:
@@ -158,3 +158,52 @@ async def test_stream_turn_skips_user_message_with_plain_string_content() -> Non
     client = _FakeClient(messages)
     events = [e async for e in stream_turn(client, "hi")]
     assert events == []  # no tool results, no assistant blocks → empty stream
+
+
+@pytest.mark.asyncio
+async def test_stream_turn_surfaces_cache_tokens_on_done_event() -> None:
+    from claude_agent_sdk import ResultMessage as _RM
+
+    result = _RM(
+        subtype="success",
+        duration_ms=0,
+        duration_api_ms=0,
+        is_error=False,
+        num_turns=1,
+        session_id="s",
+        total_cost_usd=0.002,
+        usage={
+            "input_tokens": 17,
+            "output_tokens": 42,
+            "cache_read_input_tokens": 612,
+            "cache_creation_input_tokens": 0,
+        },
+    )
+    client = _FakeClient([result])
+    events = [e async for e in stream_turn(client, "anything")]
+    done = next(e for e in events if isinstance(e, DoneEvent))
+    assert done.cache_read_tokens == 612
+    assert done.cache_creation_tokens == 0
+    assert done.input_tokens == 17
+    assert done.output_tokens == 42
+
+
+def test_format_done_omits_cache_tail_when_no_cache_activity() -> None:
+    line = format_done(DoneEvent(num_turns=2, cost_usd=0.01, input_tokens=10, output_tokens=20))
+    assert line == "— 2 turn(s), $0.0100"
+
+
+def test_format_done_shows_cache_tail_when_read_or_new_tokens_present() -> None:
+    line = format_done(
+        DoneEvent(
+            num_turns=3,
+            cost_usd=0.0042,
+            cache_read_tokens=612,
+            cache_creation_tokens=0,
+        )
+    )
+    assert line == "— 3 turn(s), $0.0042, cache: 612 read / 0 new"
+
+
+def test_format_done_returns_none_when_nothing_to_show() -> None:
+    assert format_done(DoneEvent(num_turns=1, cost_usd=None)) is None
