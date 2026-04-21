@@ -3,6 +3,9 @@
 # Advisory only: exit 0 always, never block the commit.
 
 set -u
+set -o pipefail
+
+log_file=".claude/hook-errors.log"
 
 payload="$(cat)"
 
@@ -39,12 +42,22 @@ fi
 
 prompt=$'You are an advisory code reviewer for the talk-to-your-data-lab repo (GenBI PoC).\n\nReview the staged diff below. Focus only on:\n1. SQL-safety violations: DML/DDL slipping into the read-only path, raw string-built SQL, missing LIMIT, untrusted input in queries.\n2. Obvious correctness bugs.\n3. Missing or stale tests in tests/.\n\nBe terse: at most 5 bullets, or a single line "LGTM" if clean. Never block — the developer ships either way.\n\n--- staged diff ---'
 
+stderr_capture="$(mktemp -t advisory-review.XXXXXX)"
+trap 'rm -f "$stderr_capture"' EXIT
+
 {
     echo ""
     echo "--- code-reviewer (advisory, model: opus) ---"
-    printf '%s\n\n%s\n' "$prompt" "$diff" \
-        | "${timeout_cmd[@]}" claude -p --model claude-opus-4-7 2>&1 \
-        || echo "(review skipped: timeout or CLI error — commit proceeds)"
+    if ! printf '%s\n\n%s\n' "$prompt" "$diff" \
+        | "${timeout_cmd[@]}" claude -p --model claude-opus-4-7 2>"$stderr_capture"; then
+        code=$?
+        echo "(review skipped: exit $code — see $log_file)"
+        {
+            printf '[%s] advisory-review exit=%s\n' "$(date -u +%FT%TZ)" "$code"
+            cat "$stderr_capture"
+            echo "---"
+        } >> "$log_file"
+    fi
     echo "--- end review ---"
     echo ""
 } >&2

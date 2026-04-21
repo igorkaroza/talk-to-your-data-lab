@@ -73,6 +73,5 @@ Three things to leave the audience with:
 ## Where it's headed next
 
 - **RLS + per-user auth** — the read-only role is enough for a PoC; a real product needs row-level security.
-- **`schema-explorer` subagent** — natural-language schema card auto-refreshed after each reseed; pairs with `/seed-data`.
 - **RAG over unstructured data** — pull in docs + PDFs alongside SQL once the SQL story is boring.
 - **Multi-dataset routing** — one agent, N databases, a router subagent that picks the connection from the question.

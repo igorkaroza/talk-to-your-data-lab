@@ -23,5 +23,8 @@ dist/
 # CI metrics (local dev noise)
 .ci-metrics/
 
+# Logs
+*.log
+
 # OS
 .DS_Store

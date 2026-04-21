@@ -88,7 +88,7 @@ def _sql_from_trace(trace: Trace) -> str | None:
     return None
 
 
-def _score(case: Case, trace: Trace) -> tuple[bool, str]:  # noqa: PLR0911
+def _score(case: Case, trace: Trace) -> tuple[bool, str]:  # noqa: PLR0911, PLR0912
     use_names = [u.name for u in trace.tool_uses]
 
     if case.expected_kind == "chart":
@@ -99,8 +99,16 @@ def _score(case: Case, trace: Trace) -> tuple[bool, str]:  # noqa: PLR0911
             got = chart_calls[-1].input.get("chart_type")
             if got != case.expected_chart_type:
                 return False, f"expected chart_type={case.expected_chart_type}, got {got!r}"
-    elif "sql_execute" not in use_names:
-        return False, "sql_execute was not called"
+    elif case.expected_kind == "scalar":
+        if "sql_execute" not in use_names:
+            return False, "sql_execute was not called"
+    elif case.expected_kind == "table":
+        # chart_render also executes SQL and returns rows/columns/row_count, so
+        # it satisfies a table expectation even when the agent rendered a chart.
+        if "sql_execute" not in use_names and "chart_render" not in use_names:
+            return False, "neither sql_execute nor chart_render was called"
+    else:
+        return False, f"unknown expected_kind {case.expected_kind!r}"
 
     sql = _sql_from_trace(trace)
     if sql is None:

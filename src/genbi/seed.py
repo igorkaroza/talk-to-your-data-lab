@@ -21,6 +21,7 @@ from decimal import Decimal
 
 from dotenv import load_dotenv
 from faker import Faker
+from psycopg import sql as pg_sql
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
@@ -159,29 +160,47 @@ def _insert(engine: Engine, table: str, rows: list[dict]) -> None:
 
 
 def _provision_reader(engine: Engine, password: str) -> None:
+    role = pg_sql.Identifier(READER_ROLE)
+    pw = pg_sql.Literal(password)
     with engine.begin() as conn:
-        conn.execute(
-            text(f"""
-            DO $$
-            BEGIN
-                IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{READER_ROLE}') THEN
-                    CREATE ROLE {READER_ROLE} LOGIN PASSWORD '{password}';
-                END IF;
-            END
-            $$;
-        """)
+        exists = (
+            conn.execute(
+                text("SELECT 1 FROM pg_roles WHERE rolname = :r"),
+                {"r": READER_ROLE},
+            ).first()
+            is not None
         )
-        conn.execute(text(f"ALTER ROLE {READER_ROLE} WITH PASSWORD '{password}'"))
-        # Reset then grant: keep the role strictly read-only.
-        conn.execute(text(f"REVOKE ALL ON ALL TABLES IN SCHEMA public FROM {READER_ROLE}"))
-        conn.execute(text(f"REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM {READER_ROLE}"))
-        conn.execute(text(f"GRANT USAGE ON SCHEMA public TO {READER_ROLE}"))
-        conn.execute(text(f"GRANT SELECT ON ALL TABLES IN SCHEMA public TO {READER_ROLE}"))
-        conn.execute(
-            text(
-                f"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO {READER_ROLE}"
+        # Postgres DDL (CREATE/ALTER ROLE, GRANT) does not accept bind parameters;
+        # use psycopg.sql composables so the password is safely quoted.
+        raw = conn.connection.driver_connection
+        with raw.cursor() as cur:
+            if not exists:
+                cur.execute(
+                    pg_sql.SQL("CREATE ROLE {role} LOGIN PASSWORD {pw}").format(role=role, pw=pw)
+                )
+            cur.execute(pg_sql.SQL("ALTER ROLE {role} WITH PASSWORD {pw}").format(role=role, pw=pw))
+            # Reset then grant: keep the role strictly read-only.
+            cur.execute(
+                pg_sql.SQL("REVOKE ALL ON ALL TABLES IN SCHEMA public FROM {role}").format(
+                    role=role
+                )
             )
-        )
+            cur.execute(
+                pg_sql.SQL("REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM {role}").format(
+                    role=role
+                )
+            )
+            cur.execute(pg_sql.SQL("GRANT USAGE ON SCHEMA public TO {role}").format(role=role))
+            cur.execute(
+                pg_sql.SQL("GRANT SELECT ON ALL TABLES IN SCHEMA public TO {role}").format(
+                    role=role
+                )
+            )
+            cur.execute(
+                pg_sql.SQL(
+                    "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO {role}"
+                ).format(role=role)
+            )
 
 
 def _reader_password() -> str:
