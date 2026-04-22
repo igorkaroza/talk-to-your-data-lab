@@ -33,10 +33,10 @@ st.set_page_config(page_title="GenBI", layout="wide")
 
 HERO_QUESTIONS = [
     "Show me the top customers",
-    "How many high-priority tickets closed this year grouped by month? Use a chart.",
-    "Show revenue by region as a bar chart.",
+    "How many high-priority tickets closed this year grouped by month?",
+    "Show revenue by region as a bar chart",
     "What are the top 5 products by total revenue this year?",
-    "Plot tickets opened per day over the last 30 days as a line chart.",
+    "Plot tickets opened per day over the last 30 days as a line chart",
     "What's the average order amount by customer region?",
 ]
 
@@ -145,6 +145,10 @@ _EMPTY_STATE_CSS = """
   min-height: calc(100vh - 5rem) !important;
   display: flex !important;
   flex-direction: column !important;
+  /* Shrink the bottom padding on empty-state so the hero chips sit flush
+     above the sticky chat input. The 9rem baseline is only needed once
+     real turn content could be hidden behind the chat bar. */
+  padding-bottom: 3rem !important;
 }
 [data-testid="stMainBlockContainer"] > div:first-child,
 [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlockBorderWrapper"],
@@ -153,10 +157,16 @@ _EMPTY_STATE_CSS = """
   display: flex !important;
   flex-direction: column !important;
 }
-/* Push the element-container that wraps the hero-buttons keyed block to
-   the bottom of its flex-column parent. Using :has() so we don't have to
-   hardcode the DOM depth — it matches the nearest wrapper that directly
-   (or indirectly) contains .st-key-hero-buttons. Baseline 2023. */
+/* Push the wrapper that contains the hero-buttons keyed block to the
+   bottom of its flex-column parent, so the chips sit flush above the
+   sticky chat input. Using :has() so we don't have to hardcode the DOM
+   depth — it matches the nearest wrapper that contains
+   .st-key-hero-buttons. Streamlit's layout wraps keyed containers in
+   stLayoutWrapper, with stElementContainer / stVerticalBlockBorderWrapper
+   used in older layouts; match all three. Baseline 2023. */
+[data-testid="stMainBlockContainer"]
+  > [data-testid="stVerticalBlock"]
+  > [data-testid="stLayoutWrapper"]:has(div.st-key-hero-buttons),
 [data-testid="stMainBlockContainer"]
   > [data-testid="stVerticalBlock"]
   > [data-testid="stElementContainer"]:has(div.st-key-hero-buttons),
@@ -230,16 +240,24 @@ def _render_event(
 
 
 def _render_turn(turn: dict[str, Any], *, explain_enabled: bool = False) -> None:
-    state: dict[str, Any] = {}
-    with st.chat_message(turn["role"]):
-        for i, event in enumerate(turn["events"]):
-            _render_event(
-                event,
-                turn_id=turn["id"],
-                index=i,
-                state=state,
-                explain_enabled=explain_enabled,
-            )
+    # Wrap each turn in a keyed container so Streamlit reconciles the same
+    # DOM subtree across reruns instead of leaving stale elements behind
+    # while a new turn is still draining. Without this, the DoneEvent
+    # caption from a past turn is re-emitted as a duplicate node during
+    # the rerun that kicks off the next response, and Streamlit only
+    # removes the duplicate once the drain finishes — which shows up as a
+    # visibly duplicated meta line while the new request is in-flight.
+    with st.container(key=f"turn-{turn['id']}"):
+        state: dict[str, Any] = {}
+        with st.chat_message(turn["role"]):
+            for i, event in enumerate(turn["events"]):
+                _render_event(
+                    event,
+                    turn_id=turn["id"],
+                    index=i,
+                    state=state,
+                    explain_enabled=explain_enabled,
+                )
 
 
 def _drain_turn(q: queue.Queue, turn_id: str) -> list:
