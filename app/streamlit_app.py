@@ -14,6 +14,7 @@ import queue
 from typing import Any
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 import genbi.ui.render as _render_mod
 
@@ -29,7 +30,7 @@ from genbi.ui.render import (
 )
 from genbi.ui.runtime import DONE_SENTINEL, AgentRuntime
 
-st.set_page_config(page_title="GenBI", layout="wide")
+st.set_page_config(page_title="GenBI", layout="wide", initial_sidebar_state="collapsed")
 
 HERO_QUESTIONS = [
     "Show me the top customers",
@@ -178,6 +179,102 @@ _EMPTY_STATE_CSS = """
 </style>
 """
 
+# Drawer-handle toggle for the sidebar tool-call log. Streamlit's native
+# expand button lives inside `stHeader` — which `_PAGE_CSS` hides — so
+# once the user collapses the sidebar there's no way back. Inject a
+# left-edge vertical pull tab into the parent document via a components
+# iframe: same-origin lets us reach `window.parent.document`, and a
+# 400ms setInterval keeps the tab's count and visibility in sync with
+# the sidebar's `aria-expanded` state across reruns. (Tried a
+# MutationObserver first; observing doc.body for all mutations cascaded —
+# each style write on the pull element re-triggered the observer.)
+_TOOLS_DRAWER_JS = """
+<script>
+(() => {
+  const doc = window.parent.document;
+
+  if (!doc.getElementById('genbi-tools-pull-style')) {
+    const styleEl = doc.createElement('style');
+    styleEl.id = 'genbi-tools-pull-style';
+    styleEl.textContent = `
+      #genbi-tools-pull {
+        position: fixed;
+        left: 0;
+        top: 50%;
+        transform: translateY(-50%);
+        z-index: 9999;
+        writing-mode: vertical-rl;
+        padding: 0.9rem 0.4rem;
+        background: rgba(49, 51, 63, 0.88);
+        color: #fff;
+        font-size: 0.72rem;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        border-radius: 0 0.4rem 0.4rem 0;
+        cursor: pointer;
+        user-select: none;
+        box-shadow: 2px 0 6px rgba(0,0,0,0.14);
+        transition: background 150ms;
+        display: none;
+        align-items: center;
+        gap: 0.55rem;
+      }
+      #genbi-tools-pull:hover { background: rgba(49, 51, 63, 1); }
+      #genbi-tools-pull .count {
+        writing-mode: horizontal-tb;
+        background: #fff;
+        color: rgb(49, 51, 63);
+        border-radius: 999px;
+        padding: 1px 7px;
+        font-size: 0.66rem;
+        font-weight: 700;
+        display: inline-block;
+      }
+    `;
+    doc.head.appendChild(styleEl);
+  }
+
+  let pull = doc.getElementById('genbi-tools-pull');
+  if (!pull) {
+    pull = doc.createElement('div');
+    pull.id = 'genbi-tools-pull';
+    pull.title = 'Show tool call log';
+    pull.innerHTML = 'tool calls<span class="count">0</span>';
+    pull.addEventListener('click', () => {
+      const btn = doc.querySelector('[data-testid="stExpandSidebarButton"]')
+               || doc.querySelector('[data-testid="stSidebarCollapseButton"] button');
+      if (btn) btn.click();
+    });
+    doc.body.appendChild(pull);
+  }
+
+  const refresh = () => {
+    const sidebar = doc.querySelector('[data-testid="stSidebar"]');
+    const count = doc.querySelectorAll(
+      '[data-testid="stSidebar"] [data-testid="stExpander"]'
+    ).length;
+    const countEl = pull.querySelector('.count');
+    if (countEl && countEl.textContent !== String(count)) {
+      countEl.textContent = String(count);
+    }
+    // aria-expanded is the canonical sidebar state. offsetWidth is unreliable —
+    // the outer stSidebar element can report 0 while its inner content is visible.
+    const collapsed = !sidebar || sidebar.getAttribute('aria-expanded') !== 'true';
+    const next = count > 0 && collapsed ? 'inline-flex' : 'none';
+    if (pull.style.display !== next) pull.style.display = next;
+  };
+
+  // MutationObserver on doc.body cascades — every pull.style.display write
+  // triggers the observer that called it. A 400ms poll is cheap, bounded,
+  // and stays in sync across Streamlit's per-interaction reruns.
+  if (doc.__genbiToolsTick__) clearInterval(doc.__genbiToolsTick__);
+  doc.__genbiToolsTick__ = setInterval(refresh, 400);
+  refresh();
+})();
+</script>
+"""
+
 
 @st.cache_resource
 def get_runtime() -> AgentRuntime:
@@ -309,6 +406,7 @@ def _render_hero_buttons() -> None:
 
 def main() -> None:
     st.markdown(_PAGE_CSS, unsafe_allow_html=True)
+    components.html(_TOOLS_DRAWER_JS, height=0)
 
     if "turns" not in st.session_state:
         st.session_state["turns"] = []
