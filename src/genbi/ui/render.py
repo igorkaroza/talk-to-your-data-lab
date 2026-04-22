@@ -43,6 +43,11 @@ def render_tool_result(event: ToolResultEvent) -> None:
         if payload is None:
             st.code((event.raw_text or "(empty)")[:2000])
             return
+        if payload.get("pending"):
+            st.write(f"**ask_user:** {payload.get('question', '')}")
+            for opt in payload.get("options") or []:
+                st.write(f"- {opt}")
+            return
         if "tables" in payload:
             st.write(f"{len(payload['tables'])} table(s)")
             for t in payload["tables"]:
@@ -124,3 +129,30 @@ def render_result_in_chat(
         st.dataframe(df, use_container_width=True)
         return clicked
     return False
+
+
+def render_ask_user_form(
+    payload: dict[str, Any],
+    *,
+    key_prefix: str,
+    interactive: bool = True,
+) -> str | None:
+    """Render an `ask_user` clarification form in the main chat area.
+
+    When ``interactive`` is True, options render as buttons and the chosen
+    label is returned on click. Past turns pass ``interactive=False`` so
+    the options render as static text — re-clicking a stale turn must not
+    re-fire the prompt.
+    """
+    question = payload.get("question") or ""
+    options = payload.get("options") or []
+    if question:
+        st.markdown(f"**{question}**")
+    if not interactive:
+        for opt in options:
+            st.markdown(f"- {opt}")
+        return None
+    for i, opt in enumerate(options):
+        if st.button(str(opt), key=f"{key_prefix}-opt-{i}"):
+            return str(opt)
+    return None

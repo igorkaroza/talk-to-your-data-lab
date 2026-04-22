@@ -15,7 +15,7 @@ from sqlalchemy.exc import OperationalError
 
 from genbi.db import get_engine
 from genbi.safety import SafetyError
-from genbi.tools import chart_render, schema_introspect, sql_execute
+from genbi.tools import ask_user, chart_render, schema_introspect, sql_execute
 
 DEFAULT_LIMIT = 1000
 
@@ -136,3 +136,24 @@ class TestChartRender:
                     "y": "total",
                 }
             )
+
+
+class TestAskUser:
+    async def test_echoes_question_and_options_with_pending(self) -> None:
+        result = await ask_user.handler(
+            {"question": "By revenue or by count?", "options": ["revenue", "count"]}
+        )
+        payload = _payload(result)
+        assert payload["question"] == "By revenue or by count?"
+        assert payload["options"] == ["revenue", "count"]
+        assert payload["pending"] is True
+
+    async def test_non_list_options_rejected(self) -> None:
+        with pytest.raises(ValueError, match="options must be a list"):
+            await ask_user.handler({"question": "x", "options": "revenue"})
+
+    async def test_empty_options_allowed(self) -> None:
+        result = await ask_user.handler({"question": "Anything to add?", "options": []})
+        payload = _payload(result)
+        assert payload["options"] == []
+        assert payload["pending"] is True

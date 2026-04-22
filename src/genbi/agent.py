@@ -34,13 +34,20 @@ from genbi.events import (
     ToolUseEvent,
     TurnEvent,
 )
-from genbi.tools import chart_render, schema_introspect, sql_execute
+from genbi.tools import ask_user, chart_render, schema_introspect, sql_execute
 
 MODEL = "claude-sonnet-4-6"
 
 SYSTEM_PROMPT = """You are a GenBI analyst for a small Postgres database.
 
 Workflow for every user question:
+0. If the question is genuinely ambiguous — two or more reasonable SQL
+   interpretations, a missing required filter, or a metric that could mean
+   multiple things (e.g. "top customers" — by revenue or by order count?) —
+   call `ask_user(question, options)` with 2-4 short option labels and STOP.
+   Do not call other tools and do not emit text after the ask_user call; the
+   user's next message is the clarification. For clear, unambiguous questions
+   skip this step and go straight to step 1.
 1. Call `schema_introspect` first to see what tables and columns exist.
 2. Write a single PostgreSQL SELECT that answers the question. Prefer explicit
    column lists, avoid SELECT *, and always include a LIMIT if the result
@@ -64,13 +71,15 @@ Rules:
   expander) — never restate the same numbers as a Markdown table or
   bulleted list. If `sql_execute` fired and the UI is showing the table,
   same rule. Your reply is the *summary*, not a second rendering.
+- When you call `ask_user`, that is your entire turn — no other tool calls,
+  no follow-up text. The user's next message will carry the clarification.
 - Do not wrap monetary amounts in `$…$` — Markdown parses that as LaTeX.
   Write "USD 548,465" or escape the dollar sign ("\\$548,465").
 """
 
 _MCP_SERVER = create_sdk_mcp_server(
     name="genbi",
-    tools=[schema_introspect, sql_execute, chart_render],
+    tools=[schema_introspect, sql_execute, chart_render, ask_user],
 )
 
 OPTIONS = ClaudeAgentOptions(
@@ -81,6 +90,7 @@ OPTIONS = ClaudeAgentOptions(
         "mcp__genbi__schema_introspect",
         "mcp__genbi__sql_execute",
         "mcp__genbi__chart_render",
+        "mcp__genbi__ask_user",
     ],
 )
 
@@ -159,6 +169,11 @@ def _render_tool_result(console: Console, event: ToolResultEvent) -> None:
     payload = event.payload
     if payload is None:
         summary = event.raw_text[:200]
+    elif payload.get("pending"):
+        question = payload.get("question", "")
+        options = payload.get("options") or []
+        numbered = ", ".join(f"{i + 1}) {o}" for i, o in enumerate(options))
+        summary = f"ask_user: {question}" + (f" — options: {numbered}" if numbered else "")
     elif "plotly_json" in payload:
         summary = (
             f"{payload.get('chart_type', '?')} chart, "

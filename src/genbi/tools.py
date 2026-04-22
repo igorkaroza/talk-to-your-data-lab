@@ -145,6 +145,18 @@ async def _chart_render_impl(args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+async def _ask_user_impl(args: dict[str, Any]) -> dict[str, Any]:
+    question = args.get("question", "")
+    options = args.get("options") or []
+    if not isinstance(options, list):
+        raise ValueError("options must be a list of short string labels")
+    return {
+        "question": str(question),
+        "options": [str(o) for o in options],
+        "pending": True,
+    }
+
+
 @tool(
     "schema_introspect",
     "Return the schema of all public tables as JSON. Call this first to learn the columns.",
@@ -174,3 +186,17 @@ async def sql_execute(args: dict[str, Any]) -> dict[str, Any]:
 )
 async def chart_render(args: dict[str, Any]) -> dict[str, Any]:
     return _as_content(await _chart_render_impl(args))
+
+
+@tool(
+    "ask_user",
+    (
+        "Ask the user a clarifying question BEFORE running any SQL. Use ONLY when the "
+        "question is genuinely ambiguous (e.g. 'top customers' — by revenue or by count?). "
+        "Provide 2-4 short option labels; the user picks one and it becomes the next turn. "
+        "After calling this tool, end your turn — do not emit further text."
+    ),
+    {"question": str, "options": list},
+)
+async def ask_user(args: dict[str, Any]) -> dict[str, Any]:
+    return _as_content(await _ask_user_impl(args))

@@ -27,6 +27,7 @@ from mcp.server.lowlevel.server import Server
 from mcp.server.stdio import stdio_server
 
 from genbi.tools import (
+    _ask_user_impl,
     _chart_render_impl,
     _json_safe,
     _schema_introspect_impl,
@@ -75,12 +76,31 @@ TOOLS: list[mcp_types.Tool] = [
             "additionalProperties": False,
         },
     ),
+    mcp_types.Tool(
+        name="ask_user",
+        description=(
+            "Ask the user a clarifying question BEFORE running any SQL. Use ONLY when the "
+            "question is genuinely ambiguous (e.g. 'top customers' — by revenue or by count?). "
+            "Provide 2-4 short option labels; the user picks one and it becomes the next turn. "
+            "After calling this tool, end your turn — do not emit further text."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "question": {"type": "string"},
+                "options": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["question", "options"],
+            "additionalProperties": False,
+        },
+    ),
 ]
 
 IMPLS = {
     "schema_introspect": _schema_introspect_impl,
     "sql_execute": _sql_execute_impl,
     "chart_render": _chart_render_impl,
+    "ask_user": _ask_user_impl,
 }
 
 

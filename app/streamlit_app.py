@@ -19,8 +19,10 @@ import genbi.ui.render as _render_mod
 
 importlib.reload(_render_mod)
 
+from genbi.agent import format_done
 from genbi.events import DoneEvent, TextEvent, ToolResultEvent, ToolUseEvent
 from genbi.ui.render import (
+    render_ask_user_form,
     render_result_in_chat,
     render_tool_result,
     render_tool_use,
@@ -30,6 +32,7 @@ from genbi.ui.runtime import DONE_SENTINEL, AgentRuntime
 st.set_page_config(page_title="GenBI", layout="wide")
 
 HERO_QUESTIONS = [
+    "Show me the top customers",
     "How many high-priority tickets closed this year grouped by month? Use a chart.",
     "Show revenue by region as a bar chart.",
     "What are the top 5 products by total revenue this year?",
@@ -149,7 +152,18 @@ _EMPTY_STATE_CSS = """
   flex: 1 1 auto !important;
   display: flex !important;
   flex-direction: column !important;
-  justify-content: flex-end !important;
+}
+/* Push the element-container that wraps the hero-buttons keyed block to
+   the bottom of its flex-column parent. Using :has() so we don't have to
+   hardcode the DOM depth — it matches the nearest wrapper that directly
+   (or indirectly) contains .st-key-hero-buttons. Baseline 2023. */
+[data-testid="stMainBlockContainer"]
+  > [data-testid="stVerticalBlock"]
+  > [data-testid="stElementContainer"]:has(div.st-key-hero-buttons),
+[data-testid="stMainBlockContainer"]
+  > [data-testid="stVerticalBlock"]
+  > [data-testid="stVerticalBlockBorderWrapper"]:has(div.st-key-hero-buttons) {
+  margin-top: auto !important;
 }
 </style>
 """
@@ -189,15 +203,25 @@ def _render_event(
                 prev.empty()
             slot = st.empty()
             with slot.container():
-                explain_key = f"{turn_id}-{index}-explain" if explain_enabled else None
-                clicked = render_result_in_chat(
-                    event.payload,
-                    key_prefix=f"{turn_id}-{index}",
-                    explain_key=explain_key,
-                )
-                if clicked:
-                    st.session_state["pending_prompt"] = EXPLAIN_PROMPT
-                    st.rerun()
+                if event.payload.get("pending"):
+                    chosen = render_ask_user_form(
+                        event.payload,
+                        key_prefix=f"{turn_id}-{index}",
+                        interactive=explain_enabled,
+                    )
+                    if chosen is not None:
+                        st.session_state["pending_prompt"] = chosen
+                        st.rerun()
+                else:
+                    explain_key = f"{turn_id}-{index}-explain" if explain_enabled else None
+                    clicked = render_result_in_chat(
+                        event.payload,
+                        key_prefix=f"{turn_id}-{index}",
+                        explain_key=explain_key,
+                    )
+                    if clicked:
+                        st.session_state["pending_prompt"] = EXPLAIN_PROMPT
+                        st.rerun()
             state["result_slot"] = slot
     elif isinstance(event, DoneEvent):
         line = format_done(event)
