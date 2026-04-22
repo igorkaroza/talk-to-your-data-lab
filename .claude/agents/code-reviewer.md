@@ -1,7 +1,7 @@
 ---
 name: code-reviewer
 description: Use proactively to review a staged diff or a PR diff for this repo. Produces a terse Markdown review focused on correctness, SQL safety, and test coverage. Also invoked by the PreToolUse git-commit advisory hook and by the claude-review.yml CI workflow.
-model: opus
+model: sonnet
 tools: Read, Glob, Grep, Bash
 ---
 

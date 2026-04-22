@@ -136,9 +136,7 @@ jobs:
           BRANCH_NAME:  ${{ steps.branch.outputs.branch }}
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          # Opus on this one — implementation across an unknown diff shape is
-          # where the hard-reasoning escalation per CLAUDE.md pays off.
-          claude_args: '{"model": "claude-opus-4-7", "max_turns": 40}'
+          claude_args: '{"model": "claude-sonnet-4-6", "max_turns": 40}'
           prompt: |
             You are implementing issue #$ISSUE_NUMBER in the Talk-to-Your-Data
             GenBI PoC. Read `CLAUDE.md` and `.claude/agents/developer.md` before

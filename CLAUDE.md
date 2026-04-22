@@ -50,8 +50,7 @@ Any change that relaxes these rails must be called out in the PR description.
 
 ## Model defaults
 
-- **`claude-sonnet-4-6`** for the runtime agent and most subagents.
-- **`claude-opus-4-7`** for hard-reasoning subagents: `code-reviewer`, `sql-reviewer`.
+- **`claude-sonnet-4-6`** for the runtime agent and all subagents.
 - CI workflows pin models explicitly in `claude_args`; never rely on implicit defaults there.
 
 ## How to add a tool
