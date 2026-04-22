@@ -436,7 +436,7 @@ def main() -> None:
     if not turns:
         _render_hero_buttons()
 
-    chat_prompt = st.chat_input("ask a question…")
+    chat_prompt = st.chat_input("Ask a question...")
     if chat_prompt:
         st.session_state["pending_prompt"] = chat_prompt
         st.rerun()
