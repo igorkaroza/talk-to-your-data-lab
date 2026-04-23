@@ -72,6 +72,33 @@ The `/add-tool` skill automates steps 1–3 — use it.
 - **MCP** (`.mcp.json`): standalone `postgres-readonly` stdio server — extracted from the in-process `@tool` surface; any Claude session in this repo picks up the three tools via `/mcp`.
 - **CI** (`.github/workflows/`): `claude-review.yml`, `eval-regression.yml` live gate, `nightly-doc-sync.yml`, `release-notes.yml`, `issue-to-pr.yml`.
 
+## Naming conventions
+
+### Commits — Conventional Commits
+```
+<type>(<scope>): <short summary>
+```
+- **Types:** `feat` · `fix` · `chore` · `ci` · `docs` · `test` · `refactor` · `perf`
+- **Scopes:** `agent` · `tools` · `ui` · `evals` · `ci` · `skills` · `agents` · `docs` · `db` · `safety`
+- Keep the summary under 72 characters, lowercase, no trailing period.
+- Examples: `feat(tools): add chart_render pdf export`, `fix(ui): capitalize chat input placeholder`
+
+### Branches
+```
+<type>/<short-kebab-description>
+```
+- Mirror the commit type: `feat/`, `fix/`, `chore/`, `ci/`, `docs/`, `test/`
+- Keep it short (3–5 words max). Examples: `fix/chat-input-placeholder`, `feat/csv-export`, `chore/remove-release-notes-subagent`
+
+### Issues
+- Title: imperative sentence, sentence-case. Example: `Add CSV export to chart results`
+- Label `claude-implement` to trigger the `issue-to-pr` workflow.
+
+### PRs
+- Title mirrors the primary commit: `<type>(<scope>): <summary>` — same 72-char, lowercase rule.
+- Body must include a `## Summary` bullet list and a `## Test plan` checklist.
+- Draft PRs for in-progress work; mark ready-for-review only when CI is green.
+
 ## What not to do
 
 - Don't hit the DB with `genbi_admin` from anywhere but `seed.py`.
