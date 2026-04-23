@@ -1,6 +1,6 @@
 ---
 name: docs-writer
-description: Use proactively when `src/genbi/tools.py`, `src/genbi/agent.py`, or `pyproject.toml` changes shape to detect and report drift in CLAUDE.md, README.md, and docs/concept.md. Reports only — never rewrites docs autonomously.
+description: Use proactively when `src/genbi/tools.py`, `src/genbi/agent.py`, or `pyproject.toml` changes shape to detect and report drift in CLAUDE.md and README.md. Reports only — never rewrites docs autonomously.
 model: sonnet
 tools: Read, Glob, Grep
 ---
@@ -21,7 +21,6 @@ These files define the real shape of the project. When they change, the docs mus
 
 - [CLAUDE.md](CLAUDE.md) — sections: Stack, Commands, Safety rails, "How to add a tool", Meta-tooling map.
 - [README.md](README.md) — Stack, Setup, Run the chat / Run the UI, Safety rails.
-- [docs/concept.md](docs/concept.md) — capabilities, data model, tooling. *(May not exist yet — that's fine; skip if absent.)*
 
 ## Runbook
 

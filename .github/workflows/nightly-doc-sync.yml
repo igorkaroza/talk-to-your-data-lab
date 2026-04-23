@@ -64,7 +64,7 @@ jobs:
               If the report lists drift under `### Suggested edits (human to
               apply)`, apply those edits and only those edits with `Edit` /
               `Write`. Rules:
-                - Only touch files under `CLAUDE.md`, `README.md`, `docs/`.
+                - Only touch files under `CLAUDE.md`, `README.md`.
                 - Do NOT edit anything under `src/`, `tests/`, `app/`,
                   `evals/`, `mcp_servers/`, or `.github/`.
                 - If a suggestion would require creating a new doc file, skip

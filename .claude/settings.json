@@ -31,7 +31,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": ".claude/hooks/ruff-format.sh"
+            "command": ".claude/hooks/lint-and-format.sh"
           },
           {
             "type": "command",

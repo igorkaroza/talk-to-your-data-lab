@@ -66,11 +66,11 @@ The `/add-tool` skill automates steps 1–3 — use it.
 
 ## Meta-tooling map
 
-- **Skills** (`.claude/skills/`): `seed-data`, `pr-prep`, `run-eval`, `new-question`, `add-tool`, `weekly-update`, `daily-standup`.
-- **Subagents** (`.claude/agents/`): `developer`, `code-reviewer`, `test-writer`, `docs-writer`, `sql-reviewer`, `release-notes`.
+- **Skills** (`.claude/skills/`): `seed-data`, `pr-prep`, `run-eval`, `new-question`, `add-tool`.
+- **Subagents** (`.claude/agents/`): `developer`, `code-reviewer`, `test-writer`, `docs-writer`, `sql-reviewer`.
 - **Hooks** (`.claude/settings.json`): ruff on `Write|Edit`, advisory `docs-writer` drift check on `Write|Edit` of `tools.py` / `agent.py` / `pyproject.toml`, advisory `code-reviewer` on `git commit`, `pytest -q` on `Stop`.
 - **MCP** (`.mcp.json`): standalone `postgres-readonly` stdio server — extracted from the in-process `@tool` surface; any Claude session in this repo picks up the three tools via `/mcp`.
-- **CI** (`.github/workflows/`): `claude-review.yml`, `eval-regression.yml` live gate, `nightly-doc-sync.yml`, `release-notes.yml`, `issue-to-pr.yml`.
+- **CI** (`.github/workflows/`): `claude-review.yml`, `eval-regression.yml` live gate, `nightly-doc-sync.yml`, `issue-to-pr.yml`.
 
 ## Naming conventions
 
@@ -88,7 +88,7 @@ The `/add-tool` skill automates steps 1–3 — use it.
 <type>/<short-kebab-description>
 ```
 - Mirror the commit type: `feat/`, `fix/`, `chore/`, `ci/`, `docs/`, `test/`
-- Keep it short (3–5 words max). Examples: `fix/chat-input-placeholder`, `feat/csv-export`, `chore/remove-release-notes-subagent`
+- Keep it short (3–5 words max). Examples: `fix/chat-input-placeholder`, `feat/csv-export`, `chore/update-deps`
 
 ### Issues
 - Title: imperative sentence, sentence-case. Example: `Add CSV export to chart results`
