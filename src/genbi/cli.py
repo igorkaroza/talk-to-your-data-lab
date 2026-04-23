@@ -6,6 +6,7 @@ Launch with ``uv run python -m genbi.cli chat``.
 from __future__ import annotations
 
 import asyncio
+from importlib.metadata import version
 
 import typer
 
@@ -23,6 +24,12 @@ def _main() -> None:
 def chat() -> None:
     """Start an interactive chat against the local Postgres."""
     asyncio.run(run_chat())
+
+
+@app.command()
+def version_cmd() -> None:
+    """Print the installed genbi package version."""
+    typer.echo(version("talk-to-your-data-lab"))
 
 
 if __name__ == "__main__":
