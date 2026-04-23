@@ -42,6 +42,7 @@ Any change that relaxes these rails must be called out in the PR description.
 ## Code conventions
 
 - Source layout: `src/genbi/` is the Python package; `app/` is Streamlit only; `evals/` is the regression suite; `mcp_servers/` holds standalone MCPs.
+- `src/genbi/events.py` is the structured-event boundary — the agent emits typed events consumed by both the UI (`ui/render.py`) and the eval runner. Extend the event schema there rather than inventing ad-hoc dicts per call site.
 - Prefer async (`ClaudeSDKClient`) for the agent; keep DB code sync (SQLAlchemy) — don't mix.
 - Type-hint all public functions. Use pydantic models for any structured data crossing a tool or API boundary.
 - Don't catch `Exception` broadly — let Postgres / validator errors surface to the agent so it can retry.
@@ -68,7 +69,7 @@ The `/add-tool` skill automates steps 1–3 — use it.
 
 - **Skills** (`.claude/skills/`): `seed-data`, `pr-prep`, `run-eval`, `new-question`, `add-tool`.
 - **Subagents** (`.claude/agents/`): `developer`, `code-reviewer`, `test-writer`, `docs-writer`, `sql-reviewer`.
-- **Hooks** (`.claude/settings.json`): ruff on `Write|Edit`, advisory `docs-writer` drift check on `Write|Edit` of `tools.py` / `agent.py` / `pyproject.toml`, advisory `code-reviewer` on `git commit`, `pytest -q` on `Stop`.
+- **Hooks** (`.claude/settings.json` → `.claude/hooks/`): `lint-and-format.sh` (ruff) on `Write|Edit`, `docs-drift.sh` (advisory `docs-writer`) on `Write|Edit` of `tools.py` / `agent.py` / `pyproject.toml`, `advisory-review.sh` (advisory `code-reviewer`) on `git commit`, `pytest-quick.sh` (`pytest -q`) on `Stop`.
 - **MCP** (`.mcp.json`): standalone `postgres-readonly` stdio server — extracted from the in-process `@tool` surface; any Claude session in this repo picks up the three tools via `/mcp`.
 - **CI** (`.github/workflows/`): `claude-review.yml`, `eval-regression.yml` live gate, `nightly-doc-sync.yml`, `issue-to-pr.yml`.
 
