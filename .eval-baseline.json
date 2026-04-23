@@ -60,19 +60,7 @@
       "id": "q10",
       "passed": true,
       "reason": "ok",
-      "sql": "SELECT assigned_team, ROUND(AVG(resolution_hours), 1) AS avg_resolution_hours FROM tickets WHERE resolved_at IS NOT NULL GROUP BY assigned_team ORDER BY avg_resolution_hours DESC LIMIT 1"
-    },
-    {
-      "id": "q11",
-      "passed": true,
-      "reason": "ok",
       "sql": "SELECT date_trunc('month', created_at)::date AS month, COUNT(*) AS ticket_count FROM tickets WHERE created_at >= CURRENT_DATE - INTERVAL '6 months' GROUP BY date_trunc('month', created_at) ORDER BY month"
-    },
-    {
-      "id": "q12",
-      "passed": true,
-      "reason": "ok",
-      "sql": "SELECT status, COUNT(*) AS ticket_count FROM tickets WHERE LOWER(category) = 'network' GROUP BY status ORDER BY ticket_count DESC"
     }
   ]
 }
