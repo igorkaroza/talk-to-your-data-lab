@@ -92,6 +92,8 @@ OPTIONS = ClaudeAgentOptions(
         "mcp__genbi__chart_render",
         "mcp__genbi__ask_user",
     ],
+    disallowed_tools=["ToolSearch"],
+    setting_sources=[],
 )
 
 
