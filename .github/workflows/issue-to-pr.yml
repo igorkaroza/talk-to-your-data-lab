@@ -25,7 +25,7 @@ concurrency:
 jobs:
   # Gate: only fire when the signal is unambiguous. We accept three triggers:
   #   1. An issue is labeled `claude-implement` (including the initial label-on-open).
-  #   2. An issue already carries the label and a new comment mentions `@claude`.
+  #   2. A new comment on a non-PR issue mentions `@claude`.
   #   3. A manual workflow_dispatch with an issue number.
   # Everything else (random comments, PR comments, bot labels) short-circuits here.
   gate:
@@ -56,7 +56,6 @@ jobs:
             issue_number="$ISSUE_NUMBER"
           elif [ "$EVENT_NAME" = "issue_comment" ] \
             && [ "$IS_PR" = "false" ] \
-            && [ "$HAS_LABEL" = "true" ] \
             && echo "$COMMENT_BODY" | grep -qi '@claude'; then
             go=true
             issue_number="$ISSUE_NUMBER"
