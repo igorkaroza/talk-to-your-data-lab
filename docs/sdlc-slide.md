@@ -26,7 +26,6 @@ Each phase below maps to concrete files in this repo — every bullet is somethi
   - `test-writer` — happy path + one negative, pytest house style.
   - `docs-writer` — keeps `CLAUDE.md` / `README.md` in sync with code.
   - `sql-reviewer` (Opus) — JOIN correctness, NULL hazards, cardinality risk.
-  - `release-notes` — tag-to-tag `git log` + merged PRs → stakeholder Markdown grouped by commit scope.
 - **Skills** (`.claude/skills/`) — seven user-facing commands that encode *this project's* workflow:
   - `/seed-data`, `/run-eval`, `/new-question`, `/pr-prep`, `/add-tool`, `/weekly-update`, `/daily-standup`.
 - **Advisory PreToolUse hook** on `git commit` — `code-reviewer` runs on the staged diff, prints findings, never blocks. Human decides.
@@ -37,7 +36,6 @@ Each phase below maps to concrete files in this repo — every bullet is somethi
 - **`eval-regression.yml`** — runs the 12-case eval suite, posts the Rich pass/fail matrix as a PR comment, **fails the check if pass-rate drops >5pp vs. the committed baseline**. SQL quality is now a PR gate.
 - **`nightly-doc-sync.yml`** — scheduled cron; if docs drifted, opens an auto-PR titled `chore(docs): nightly drift sync <date>`. Keeps docs from rotting across a multi-week build.
 - **`issue-to-pr.yml`** — label an issue `claude-implement` (or `@claude` in a comment on a labeled issue) → the `developer` subagent runs headless on Opus, green-tests a branch, opens a **draft** PR with `Closes #N`. Humans mark ready-for-review. The headline "issue becomes a PR" demo.
-- **`release-notes.yml`** — on `v*` tag push, the `release-notes` subagent drafts the GitHub Release body from the tag-to-tag git log + merged PRs. One `gh release create --verify-tag` later, the release is live.
 
 ## Claude SDK — the app side
 

@@ -122,9 +122,9 @@ The in-process `@tool` path stays the production surface for the CLI + Streamlit
 Every primitive is wired to a concrete job in this repo — full map in [CLAUDE.md](CLAUDE.md#meta-tooling-map).
 
 - **7 skills** (`.claude/skills/`) — `/seed-data`, `/pr-prep`, `/run-eval`, `/new-question`, `/add-tool`, `/weekly-update`, `/daily-standup`.
-- **6 subagents** (`.claude/agents/`) — `developer`, `code-reviewer` (Opus), `test-writer`, `docs-writer`, `sql-reviewer` (Opus), `release-notes`.
+- **5 subagents** (`.claude/agents/`) — `developer`, `code-reviewer`, `test-writer`, `docs-writer`, `sql-reviewer`.
 - **4 hooks** (`.claude/settings.json`) — ruff on Write/Edit; advisory `docs-writer` drift check on `tools.py` / `agent.py` / `pyproject.toml`; advisory `code-reviewer` on `git commit`; `pytest -q` on Stop.
-- **5 CI workflows** (`.github/workflows/`) — `claude-review.yml` (AI PR review), `eval-regression.yml` (live eval gate), `nightly-doc-sync.yml` (auto-PR on docs drift), `release-notes.yml` (drafts GitHub Release on tag push), `issue-to-pr.yml` (label `claude-implement` → headless `developer` subagent → draft PR).
+- **4 CI workflows** (`.github/workflows/`) — `claude-review.yml` (AI PR review), `eval-regression.yml` (live eval gate), `nightly-doc-sync.yml` (auto-PR on docs drift), `issue-to-pr.yml` (label `claude-implement` → headless `developer` subagent → draft PR).
 - **Standalone MCP** (`.mcp.json`) — `postgres-readonly` stdio server exposing the same three tools to any Claude Code session in the repo.
 
 ## Tests & lint
@@ -148,8 +148,7 @@ evals/            # questions.yaml + run_evals.py
 mcp_servers/      # postgres_readonly standalone stdio MCP
 docs/             # concept.md, demo-script.md, sdlc-slide.md, weekly-updates/
 .claude/          # skills, subagents, hooks, settings
-.github/workflows # claude-review, eval-regression, nightly-doc-sync,
-                  # release-notes, issue-to-pr
+.github/workflows # claude-review, eval-regression, nightly-doc-sync, issue-to-pr
 .mcp.json         # registers postgres-readonly stdio MCP
 CLAUDE.md         # project conventions — safety rails, commands, model defaults
 docker-compose.yml

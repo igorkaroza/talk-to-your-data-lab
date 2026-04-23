@@ -105,7 +105,6 @@ Open `.github/workflows/` — five files.
 - **`eval-regression.yml`** — every PR runs the 12-case suite, posts the Rich matrix as a PR comment, fails the check if pass-rate drops more than 5pp vs. the committed baseline.
 - **`nightly-doc-sync.yml`** — scheduled cron; runs `docs-writer`; if docs drifted, opens an auto-PR titled `chore(docs): nightly drift sync <date>`. A human merges.
 - **`issue-to-pr.yml`** *(live-demo candidate if time allows)* — label an issue `claude-implement` → the `developer` subagent runs headless on Opus, commits a green branch, opens a **draft** PR with `Closes #N`. Human marks it ready-for-review.
-- **`release-notes.yml`** — push a `v*` tag → `release-notes` subagent drafts the GitHub Release body from the tag-to-tag git log + merged PRs, grouped by commit scope. One-liner; mention but don't demo.
 - **`claude-review.yml`** (already covered above) — the AI PR review that fires on every open.
 
 If a broken-on-purpose branch is available, open the PR tab and show the red check + the matrix comment.
