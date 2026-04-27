@@ -32,6 +32,19 @@ class ToolResultEvent(BaseModel):
     is_error: bool
 
 
+class KBSearchResultEvent(BaseModel):
+    """Specialized event for ``kb_search`` results so the UI can render the
+    retrieved snippets with their scores. Emitted in addition to the regular
+    :class:`ToolResultEvent` for that tool — the sidebar trace still records
+    every call uniformly.
+    """
+
+    kind: Literal["kb_search_result"] = "kb_search_result"
+    query: str
+    snippets: list[dict[str, Any]]
+    error: str | None = None
+
+
 class DoneEvent(BaseModel):
     kind: Literal["done"] = "done"
     num_turns: int
@@ -42,4 +55,4 @@ class DoneEvent(BaseModel):
     cache_creation_tokens: int | None = None
 
 
-TurnEvent = TextEvent | ToolUseEvent | ToolResultEvent | DoneEvent
+TurnEvent = TextEvent | ToolUseEvent | ToolResultEvent | KBSearchResultEvent | DoneEvent

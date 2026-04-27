@@ -67,9 +67,15 @@ cp .env.example .env
 # 3. Start Postgres and load synthetic data
 docker compose up -d postgres
 uv run python -m genbi.seed
+
+# 4. (Optional) Populate the knowledge base for kb_search
+ollama pull nomic-embed-text
+uv run python -m genbi.seed_kb
 ```
 
-`genbi.seed` provisions two roles — `genbi_admin` (write, used only by the seed script) and `genbi_reader` (SELECT-only, used by everything else) — and populates `sales_orders` (~2000 rows) and `tickets` (~1200 rows) with Faker.
+`genbi.seed` provisions two roles — `genbi_admin` (write, used only by the seed script) and `genbi_reader` (SELECT-only, used by everything else) — and populates `sales_orders` (~2000 rows) and `tickets` (~1200 rows) with Faker. It also enables the `vector` extension and creates an empty `kb_chunks` table for RAG.
+
+`genbi.seed_kb` is optional: it embeds the markdown files under `kb/` via a locally-running [Ollama](https://ollama.com/) (`nomic-embed-text`, 768 dims) and inserts them into `kb_chunks`. The agent's `kb_search` tool retrieves from this corpus before writing SQL when a question uses fuzzy business terms ("hero product", "active customer", "revenue"). If Ollama is unreachable at runtime, `kb_search` returns an error field and the agent proceeds without RAG context — nothing else breaks.
 
 ## Run the chat
 
@@ -113,7 +119,7 @@ CI runs the suite on every PR via [`eval-regression.yml`](.github/workflows/eval
 
 ## Standalone MCP
 
-`.mcp.json` registers a `postgres-readonly` stdio MCP server (`mcp_servers/postgres_readonly.py`) that exposes the same `schema_introspect` / `sql_execute` / `chart_render` tools as the in-process agent, routed through the same read-only role. Any Claude Code session opened in this repo picks it up via `/mcp` — handy for ad-hoc schema questions outside the main app.
+`.mcp.json` registers a `postgres-readonly` stdio MCP server (`mcp_servers/postgres_readonly.py`) that exposes the same `schema_introspect` / `sql_execute` / `chart_render` / `ask_user` / `kb_search` tools as the in-process agent, routed through the same read-only role. Any Claude Code session opened in this repo picks it up via `/mcp` — handy for ad-hoc schema questions outside the main app.
 
 The in-process `@tool` path stays the production surface for the CLI + Streamlit runtime (no IPC hop); the standalone MCP is the learning deliverable and the second tool surface.
 
@@ -141,7 +147,9 @@ Every generated statement is parsed by `sqlglot` and rejected if it isn't a sing
 ## Repo layout
 
 ```
-src/genbi/        # package: db, seed, safety, tools, agent, events, cli, ui/
+src/genbi/        # package: db, seed, seed_kb, safety, tools, agent, events,
+                  # kb, cli, ui/
+kb/               # business-glossary corpus (markdown, one ## H2 = one chunk)
 tests/            # pytest suite (unit + integration)
 app/              # Streamlit UI
 evals/            # questions.yaml + run_evals.py

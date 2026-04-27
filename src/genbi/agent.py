@@ -29,12 +29,13 @@ from rich.syntax import Syntax
 
 from genbi.events import (
     DoneEvent,
+    KBSearchResultEvent,
     TextEvent,
     ToolResultEvent,
     ToolUseEvent,
     TurnEvent,
 )
-from genbi.tools import ask_user, chart_render, schema_introspect, sql_execute
+from genbi.tools import ask_user, chart_render, kb_search, schema_introspect, sql_execute
 
 MODEL = "claude-sonnet-4-6"
 
@@ -47,8 +48,13 @@ Workflow for every user question:
    call `ask_user(question, options)` with 2-4 short option labels and STOP.
    Do not call other tools and do not emit text after the ask_user call; the
    user's next message is the clarification. For clear, unambiguous questions
-   skip this step and go straight to step 1.
-1. Call `schema_introspect` first to see what tables and columns exist.
+   skip this step and go straight to step 0.5.
+0.5 If the question uses fuzzy business terms (revenue, hero product, active
+   customer, unresolved, SLA, urgent, churn, etc.), call `kb_search(query)`
+   FIRST. Treat any returned snippets as ground-truth definitions for THIS
+   dataset and adopt their formulas verbatim. If the tool returns an error
+   field (Ollama unavailable), proceed without RAG context — do not block.
+1. Call `schema_introspect` to see what tables and columns exist.
 2. Write a single PostgreSQL SELECT that answers the question. Prefer explicit
    column lists, avoid SELECT *, and always include a LIMIT if the result
    could be large. Use standard SQL date functions (e.g. date_trunc, interval).
@@ -79,7 +85,7 @@ Rules:
 
 _MCP_SERVER = create_sdk_mcp_server(
     name="genbi",
-    tools=[schema_introspect, sql_execute, chart_render, ask_user],
+    tools=[schema_introspect, sql_execute, chart_render, ask_user, kb_search],
 )
 
 OPTIONS = ClaudeAgentOptions(
@@ -91,6 +97,7 @@ OPTIONS = ClaudeAgentOptions(
         "mcp__genbi__sql_execute",
         "mcp__genbi__chart_render",
         "mcp__genbi__ask_user",
+        "mcp__genbi__kb_search",
     ],
     disallowed_tools=["ToolSearch"],
     setting_sources=[],
@@ -141,7 +148,14 @@ async def stream_turn(client: ClaudeSDKClient, prompt: str) -> AsyncIterator[Tur
             if isinstance(message.content, list):
                 for block in message.content:
                     if isinstance(block, ToolResultBlock):
-                        yield _tool_result_event(block, tool_names)
+                        event = _tool_result_event(block, tool_names)
+                        yield event
+                        if event.name == "kb_search" and isinstance(event.payload, dict):
+                            yield KBSearchResultEvent(
+                                query=str(event.payload.get("query") or ""),
+                                snippets=list(event.payload.get("snippets") or []),
+                                error=event.payload.get("error"),
+                            )
         elif isinstance(message, ResultMessage):
             usage = message.usage or {}
             yield DoneEvent(
