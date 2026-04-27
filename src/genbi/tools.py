@@ -16,6 +16,7 @@ Registered on the SDK MCP server in :mod:`genbi.agent`.
 from __future__ import annotations
 
 import json
+import os
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
@@ -25,11 +26,18 @@ import plotly.express as px
 from claude_agent_sdk import tool
 from sqlalchemy import text
 
+from genbi import kb
 from genbi.db import get_engine
 from genbi.safety import validate_and_prepare
 
 STATEMENT_TIMEOUT = "5s"
 VALID_CHART_TYPES = ("bar", "line", "pie", "scatter")
+# Tables hidden from schema_introspect — internal infrastructure that the
+# agent should never SELECT from directly. kb_chunks is the RAG store; it is
+# accessed only through the kb_search tool.
+_INTERNAL_TABLES = frozenset({"kb_chunks"})
+KB_K_DEFAULT = 5
+KB_K_MAX = 10
 
 
 def _json_safe(value: Any) -> Any:
@@ -88,6 +96,8 @@ async def _schema_introspect_impl(_args: dict[str, Any]) -> dict[str, Any]:
             column_description,
             table_description,
         ) in conn.execute(query):
+            if table_name in _INTERNAL_TABLES:
+                continue
             entry = tables.setdefault(
                 table_name,
                 {"description": table_description or None, "columns": []},
@@ -157,6 +167,38 @@ async def _ask_user_impl(args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _kb_default_k() -> int:
+    raw = os.environ.get("KB_TOP_K")
+    if not raw:
+        return KB_K_DEFAULT
+    try:
+        return max(1, min(KB_K_MAX, int(raw)))
+    except ValueError:
+        return KB_K_DEFAULT
+
+
+async def _kb_search_impl(args: dict[str, Any]) -> dict[str, Any]:
+    query = str(args.get("query") or "").strip()
+    if not query:
+        raise ValueError("query must be a non-empty string")
+    raw_k = args.get("k")
+    k = _kb_default_k() if raw_k in (None, "") else max(1, min(KB_K_MAX, int(raw_k)))
+    try:
+        snippets = await kb.search(query, k)
+    except kb.KBEmbedError as err:
+        return {
+            "query": query,
+            "snippets": [],
+            "snippet_count": 0,
+            "error": f"ollama unavailable: {err}",
+        }
+    return {
+        "query": query,
+        "snippets": snippets,
+        "snippet_count": len(snippets),
+    }
+
+
 @tool(
     "schema_introspect",
     "Return the schema of all public tables as JSON. Call this first to learn the columns.",
@@ -200,3 +242,21 @@ async def chart_render(args: dict[str, Any]) -> dict[str, Any]:
 )
 async def ask_user(args: dict[str, Any]) -> dict[str, Any]:
     return _as_content(await _ask_user_impl(args))
+
+
+@tool(
+    "kb_search",
+    (
+        "Search the business glossary for definitions, synonyms, and tribal knowledge "
+        "before writing SQL. Call this when the question uses fuzzy business terms "
+        "(revenue, hero product, active customer, unresolved, SLA, urgent, etc.) — the "
+        "snippets carry the canonical meaning for THIS dataset and should be treated as "
+        "ground truth when picking columns or filters. Returns up to k snippets, each "
+        "with doc / section / body / score. If the embedding service is unavailable, "
+        "the tool returns an error field and an empty snippets list — proceed without "
+        "RAG context in that case."
+    ),
+    {"query": str, "k": int},
+)
+async def kb_search(args: dict[str, Any]) -> dict[str, Any]:
+    return _as_content(await _kb_search_impl(args))

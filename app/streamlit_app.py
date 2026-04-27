@@ -21,9 +21,16 @@ import genbi.ui.render as _render_mod
 importlib.reload(_render_mod)
 
 from genbi.agent import format_done
-from genbi.events import DoneEvent, TextEvent, ToolResultEvent, ToolUseEvent
+from genbi.events import (
+    DoneEvent,
+    KBSearchResultEvent,
+    TextEvent,
+    ToolResultEvent,
+    ToolUseEvent,
+)
 from genbi.ui.render import (
     render_ask_user_form,
+    render_kb_snippets,
     render_result_in_chat,
     render_tool_result,
     render_tool_use,
@@ -281,7 +288,7 @@ def get_runtime() -> AgentRuntime:
     return AgentRuntime()
 
 
-def _render_event(
+def _render_event(  # noqa: PLR0912 — flat dispatch over event types is clearer than splitting
     event: Any,
     *,
     turn_id: str,
@@ -302,6 +309,8 @@ def _render_event(
             st.markdown(event.text)
     elif isinstance(event, ToolUseEvent):
         render_tool_use(event)
+    elif isinstance(event, KBSearchResultEvent):
+        render_kb_snippets(event)
     elif isinstance(event, ToolResultEvent):
         render_tool_result(event)
         if event.payload and not event.is_error:

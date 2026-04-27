@@ -75,3 +75,10 @@
   expected_kind: chart
   expected_chart_type: line
   min_rows: 3
+
+- id: q11
+  question: "Show me revenue by hero product as a bar chart"
+  must_include_tables: [sales_orders]
+  expected_kind: chart
+  expected_chart_type: bar
+  min_rows: 2

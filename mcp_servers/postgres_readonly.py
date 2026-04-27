@@ -30,6 +30,7 @@ from genbi.tools import (
     _ask_user_impl,
     _chart_render_impl,
     _json_safe,
+    _kb_search_impl,
     _schema_introspect_impl,
     _sql_execute_impl,
 )
@@ -94,6 +95,26 @@ TOOLS: list[mcp_types.Tool] = [
             "additionalProperties": False,
         },
     ),
+    mcp_types.Tool(
+        name="kb_search",
+        description=(
+            "Search the business glossary for definitions, synonyms, and tribal knowledge "
+            "before writing SQL. Call this when the question uses fuzzy business terms "
+            "(revenue, hero product, active customer, unresolved, SLA, urgent, etc.). "
+            "Returns up to k snippets, each with doc / section / body / score. If the "
+            "embedding service is unavailable, the tool returns an error field and an "
+            "empty snippets list — proceed without RAG context in that case."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "k": {"type": "integer", "minimum": 1, "maximum": 10},
+            },
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+    ),
 ]
 
 IMPLS = {
@@ -101,6 +122,7 @@ IMPLS = {
     "sql_execute": _sql_execute_impl,
     "chart_render": _chart_render_impl,
     "ask_user": _ask_user_impl,
+    "kb_search": _kb_search_impl,
 }
 
 

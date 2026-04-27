@@ -61,6 +61,21 @@ CREATE INDEX idx_tickets_priority      ON tickets (priority);
 CREATE INDEX idx_tickets_assigned_team ON tickets (assigned_team);
 """
 
+# RAG store for the kb_search tool. Populated by genbi.seed_kb (separate
+# script, requires Ollama). Hidden from schema_introspect via
+# tools._INTERNAL_TABLES so the agent never tries to SELECT from it directly.
+KB_CHUNKS_DDL = """
+CREATE TABLE kb_chunks (
+    chunk_id  BIGSERIAL PRIMARY KEY,
+    doc       TEXT NOT NULL,
+    section   TEXT NOT NULL,
+    body      TEXT NOT NULL,
+    embedding vector(768) NOT NULL
+);
+CREATE INDEX idx_kb_chunks_embedding
+  ON kb_chunks USING hnsw (embedding vector_cosine_ops);
+"""
+
 REGIONS = ["North", "South", "East", "West", "Central"]
 REGION_WEIGHTS = [0.28, 0.14, 0.22, 0.26, 0.10]
 
@@ -89,6 +104,9 @@ TABLE_COMMENTS: dict[str, str] = {
     "tickets": (
         "Support tickets, one row per ticket. Unresolved tickets have "
         "resolved_at IS NULL and resolution_hours IS NULL."
+    ),
+    "kb_chunks": (
+        "Internal RAG store for the kb_search tool. Not a business table — do not query directly."
     ),
 }
 
@@ -136,10 +154,13 @@ COLUMN_COMMENTS: dict[str, dict[str, str]] = {
 
 def _reset_tables(engine: Engine) -> None:
     with engine.begin() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         conn.execute(text("DROP TABLE IF EXISTS sales_orders CASCADE"))
         conn.execute(text("DROP TABLE IF EXISTS tickets CASCADE"))
+        conn.execute(text("DROP TABLE IF EXISTS kb_chunks CASCADE"))
         conn.execute(text(SALES_ORDERS_DDL))
         conn.execute(text(TICKETS_DDL))
+        conn.execute(text(KB_CHUNKS_DDL))
 
 
 def _gen_sales(faker: Faker, n: int) -> list[dict]:
