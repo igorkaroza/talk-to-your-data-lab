@@ -46,23 +46,28 @@ def _ollama_model() -> str:
     return os.environ.get("OLLAMA_EMBED_MODEL", "nomic-embed-text")
 
 
-def chunk_markdown(path: Path) -> list[KBChunk]:
-    """Split a markdown file on ``## `` H2 headings, one chunk per section.
+def chunk_markdown_text(name: str, text: str) -> list[KBChunk]:
+    """Split markdown ``text`` on ``## `` H2 headings, one chunk per section.
 
-    The file's H1 (if present) and any preamble before the first H2 are
-    discarded — the H2 sections are the retrievable unit. ``doc`` is the
-    file name (e.g. ``glossary.md``); ``section`` is the H2 heading text.
+    Used by :func:`chunk_markdown` (for files on disk) and by
+    :mod:`genbi.kb_ingest` (for user-uploaded byte buffers). Anything before
+    the first H2 — H1, preamble — is discarded; the H2 sections are the
+    retrievable unit. ``name`` becomes the chunk's ``doc``.
     """
-    raw = path.read_text(encoding="utf-8")
-    parts = re.split(r"^## (.+)$", raw, flags=re.MULTILINE)
+    parts = re.split(r"^## (.+)$", text, flags=re.MULTILINE)
     chunks: list[KBChunk] = []
     # Re.split with a capture group yields: [preamble, heading, body, heading, body, ...]
     for i in range(1, len(parts), 2):
         section = parts[i].strip()
         body = parts[i + 1].strip() if i + 1 < len(parts) else ""
         if section and body:
-            chunks.append(KBChunk(doc=path.name, section=section, body=body))
+            chunks.append(KBChunk(doc=name, section=section, body=body))
     return chunks
+
+
+def chunk_markdown(path: Path) -> list[KBChunk]:
+    """Split a markdown file on ``## `` H2 headings, one chunk per section."""
+    return chunk_markdown_text(path.name, path.read_text(encoding="utf-8"))
 
 
 async def embed(content: str) -> list[float]:

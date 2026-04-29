@@ -66,14 +66,18 @@ CREATE INDEX idx_tickets_assigned_team ON tickets (assigned_team);
 # tools._INTERNAL_TABLES so the agent never tries to SELECT from it directly.
 KB_CHUNKS_DDL = """
 CREATE TABLE kb_chunks (
-    chunk_id  BIGSERIAL PRIMARY KEY,
-    doc       TEXT NOT NULL,
-    section   TEXT NOT NULL,
-    body      TEXT NOT NULL,
-    embedding vector(768) NOT NULL
+    chunk_id    BIGSERIAL PRIMARY KEY,
+    doc         TEXT NOT NULL,
+    section     TEXT NOT NULL,
+    body        TEXT NOT NULL,
+    embedding   vector(768) NOT NULL,
+    source      TEXT NOT NULL DEFAULT 'corpus',
+    uploaded_at TIMESTAMPTZ
 );
 CREATE INDEX idx_kb_chunks_embedding
   ON kb_chunks USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX idx_kb_chunks_source_doc
+  ON kb_chunks (source, doc);
 """
 
 REGIONS = ["North", "South", "East", "West", "Central"]
@@ -95,6 +99,7 @@ STATUSES = ["Open", "In Progress", "Resolved", "Closed"]
 RESOLVED_RATIO = 0.8
 
 READER_ROLE = "genbi_reader"
+KB_WRITER_ROLE = "genbi_kb_writer"
 
 # In-DB comments surfaced via `schema_introspect` — the agent reads these to
 # pick the right column, avoid ambiguous joins, and remember enum value lists
@@ -300,10 +305,78 @@ def _provision_reader(engine: Engine, password: str) -> None:
             )
 
 
-def _reader_password() -> str:
-    # Pull from READONLY_DATABASE_URL so there is one source of truth.
-    url = os.environ.get("READONLY_DATABASE_URL", "")
-    # postgresql+psycopg://genbi_reader:PASSWORD@host:port/db
+def _provision_kb_writer(engine: Engine, password: str) -> None:
+    """Provision the narrowly-scoped ``genbi_kb_writer`` role.
+
+    Used by the Streamlit ingest path to insert/replace rows in ``kb_chunks``
+    only. Grants: ``USAGE`` on schema, ``SELECT/INSERT/DELETE`` on the single
+    ``kb_chunks`` table, and ``USAGE/SELECT`` on its serial sequence (looked
+    up via ``pg_get_serial_sequence`` so a column rename doesn't break this).
+    Intentionally **not** granted ``ALTER DEFAULT PRIVILEGES`` — the role
+    must not gain rights on tables added later.
+    """
+    role = pg_sql.Identifier(KB_WRITER_ROLE)
+    pw = pg_sql.Literal(password)
+    with engine.begin() as conn:
+        exists = (
+            conn.execute(
+                text("SELECT 1 FROM pg_roles WHERE rolname = :r"),
+                {"r": KB_WRITER_ROLE},
+            ).first()
+            is not None
+        )
+        seq_name = conn.execute(
+            text("SELECT pg_get_serial_sequence('kb_chunks', 'chunk_id')")
+        ).scalar_one()
+        if not seq_name:
+            raise RuntimeError(
+                "pg_get_serial_sequence returned NULL for kb_chunks.chunk_id — "
+                "did the table get created?"
+            )
+        # Sequence comes back as 'public.kb_chunks_chunk_id_seq'; split for Identifier safety.
+        seq_schema, _, seq_local = seq_name.partition(".")
+        seq_ident = (
+            pg_sql.Identifier(seq_schema, seq_local) if seq_local else pg_sql.Identifier(seq_name)
+        )
+        raw = conn.connection.driver_connection
+        with raw.cursor() as cur:
+            if not exists:
+                cur.execute(
+                    pg_sql.SQL("CREATE ROLE {role} LOGIN PASSWORD {pw}").format(role=role, pw=pw)
+                )
+            cur.execute(pg_sql.SQL("ALTER ROLE {role} WITH PASSWORD {pw}").format(role=role, pw=pw))
+            # Reset to a known-empty grant set, then add only what's needed.
+            cur.execute(
+                pg_sql.SQL("REVOKE ALL ON ALL TABLES IN SCHEMA public FROM {role}").format(
+                    role=role
+                )
+            )
+            cur.execute(
+                pg_sql.SQL("REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM {role}").format(
+                    role=role
+                )
+            )
+            cur.execute(pg_sql.SQL("GRANT USAGE ON SCHEMA public TO {role}").format(role=role))
+            cur.execute(
+                pg_sql.SQL("GRANT SELECT, INSERT, DELETE ON TABLE kb_chunks TO {role}").format(
+                    role=role
+                )
+            )
+            cur.execute(
+                pg_sql.SQL("GRANT USAGE, SELECT ON SEQUENCE {seq} TO {role}").format(
+                    seq=seq_ident, role=role
+                )
+            )
+
+
+def _password_from_url(env_var: str, expected_user: str) -> str:
+    """Pull the password out of a ``postgresql+psycopg://user:pw@host:port/db`` URL.
+
+    One source of truth per role: the connection URL the runtime uses is the
+    same place the seed script reads the password from. ``expected_user`` is
+    only used in the error message so a misconfigured env var fails loudly.
+    """
+    url = os.environ.get(env_var, "")
     try:
         after_scheme = url.split("://", 1)[1]
         creds, _ = after_scheme.split("@", 1)
@@ -311,8 +384,8 @@ def _reader_password() -> str:
         return password
     except (IndexError, ValueError) as err:
         raise RuntimeError(
-            "Could not parse READONLY_DATABASE_URL. Expected "
-            "postgresql+psycopg://genbi_reader:<password>@host:port/db"
+            f"Could not parse {env_var}. Expected "
+            f"postgresql+psycopg://{expected_user}:<password>@host:port/db"
         ) from err
 
 
@@ -334,7 +407,10 @@ def main(*, sales_rows: int = 2_000, ticket_rows: int = 1_200, seed: int = 42) -
     _apply_comments(engine)
 
     print(f"[seed] provisioning {READER_ROLE} role (SELECT-only)...")
-    _provision_reader(engine, _reader_password())
+    _provision_reader(engine, _password_from_url("READONLY_DATABASE_URL", READER_ROLE))
+
+    print(f"[seed] provisioning {KB_WRITER_ROLE} role (kb_chunks writer)...")
+    _provision_kb_writer(engine, _password_from_url("KB_WRITER_DATABASE_URL", KB_WRITER_ROLE))
 
     print("[seed] done.")
 

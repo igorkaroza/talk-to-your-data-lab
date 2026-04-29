@@ -409,7 +409,7 @@ def _render_hero_buttons() -> None:
                 st.rerun()
 
 
-def main() -> None:
+def main() -> None:  # noqa: PLR0912, PLR0915 — splice covers ingest + agent + chat-input branches
     st.markdown(_PAGE_CSS, unsafe_allow_html=True)
     components.html(_TOOLS_DRAWER_JS, height=0)
 
@@ -423,27 +423,69 @@ def main() -> None:
     for i, turn in enumerate(turns):
         _render_turn(turn, explain_enabled=(i == latest_assistant))
 
-    prompt = st.session_state.pop("pending_prompt", None)
+    pending = st.session_state.pop("pending_prompt", None)
+    # Hero buttons / ask_user / explain push raw strings; the chat input pushes
+    # a {text, files} dict. Normalize so the rest of the flow has one shape.
+    if isinstance(pending, str):
+        pending = {"text": pending, "files": []}
 
-    if prompt:
+    if pending and (pending.get("text") or pending.get("files")):
+        text_part = (pending.get("text") or "").strip()
+        files = pending.get("files") or []
+
         user_id = f"u{len(turns)}"
-        user_turn = {"id": user_id, "role": "user", "events": [TextEvent(text=prompt)]}
+        user_events: list[Any] = []
+        if files:
+            attached = ", ".join(f.name for f in files)
+            user_events.append(TextEvent(text=f"_(attached: {attached})_"))
+        if text_part:
+            user_events.append(TextEvent(text=text_part))
+        user_turn = {"id": user_id, "role": "user", "events": user_events}
         turns.append(user_turn)
         _render_turn(user_turn)
 
         runtime = get_runtime()
-        q = runtime.run_turn(prompt)
-        assistant_id = f"a{len(turns)}"
-        with st.chat_message("assistant"):
-            events = _drain_turn(q, assistant_id)
-        turns.append({"id": assistant_id, "role": "assistant", "events": events})
+
+        if files:
+            with st.status("Ingesting attachments...", expanded=False) as status:
+                results = runtime.ingest_files(files)
+                for r in results:
+                    if r.ok:
+                        msg = f"**{r.filename}** — added {r.chunks_inserted} chunk(s)"
+                        if r.chunks_replaced:
+                            msg += f" (replaced {r.chunks_replaced})"
+                        status.write(msg)
+                    else:
+                        status.write(f"**{r.filename}** — {r.error}")
+                status.update(state="complete", label="Ingest complete.")
+            if not text_part:
+                st.toast("Knowledge base updated.")
+
+        if text_part:
+            q = runtime.run_turn(text_part)
+            assistant_id = f"a{len(turns)}"
+            with st.chat_message("assistant"):
+                events = _drain_turn(q, assistant_id)
+            turns.append({"id": assistant_id, "role": "assistant", "events": events})
 
     if not turns:
         _render_hero_buttons()
 
-    chat_prompt = st.chat_input("Ask a question...")
-    if chat_prompt:
-        st.session_state["pending_prompt"] = chat_prompt
+    chat_value = st.chat_input(
+        "Ask a question or attach .md / .txt to add to the knowledge base...",
+        accept_file="multiple",
+        file_type=["md", "txt"],
+    )
+    if chat_value is not None:
+        # accept_file makes chat_input return a ChatInputValue; without files it
+        # would still come back with `.text` populated.
+        if isinstance(chat_value, str):
+            st.session_state["pending_prompt"] = {"text": chat_value, "files": []}
+        else:
+            st.session_state["pending_prompt"] = {
+                "text": chat_value.text or "",
+                "files": list(chat_value.files or []),
+            }
         st.rerun()
 
 

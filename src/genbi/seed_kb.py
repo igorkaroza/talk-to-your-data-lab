@@ -2,11 +2,13 @@
 
 Run with ``uv run python -m genbi.seed_kb`` after ``genbi.seed`` has
 created the table. Requires a running Ollama with the embedding model
-pulled (``ollama pull nomic-embed-text``). Idempotent — truncates and
-reinserts on every run.
+pulled (``ollama pull nomic-embed-text``). Idempotent — deletes only the
+``source='corpus'`` rows on every run, so user-uploaded chunks (written by
+:mod:`genbi.kb_ingest` with ``source='upload'``) survive a corpus re-seed.
 
-Runs as ``genbi_admin``. Never call from app or agent code; this is the
-only writer to ``kb_chunks``.
+Runs as ``genbi_admin``. Note that ``genbi.seed`` (full reset) still drops
+``kb_chunks`` entirely, which wipes uploads — only re-running ``seed_kb``
+preserves them.
 """
 
 from __future__ import annotations
@@ -46,6 +48,8 @@ async def main() -> None:
                     "section": chunk.section,
                     "body": chunk.body,
                     "embedding": vector,
+                    "source": "corpus",
+                    "uploaded_at": None,
                 }
             )
 
@@ -53,13 +57,14 @@ async def main() -> None:
         raise SystemExit("[seed_kb] corpus produced 0 chunks — check H2 headings.")
 
     insert = text(
-        "INSERT INTO kb_chunks (doc, section, body, embedding) "
-        "VALUES (:doc, :section, :body, :embedding)"
+        "INSERT INTO kb_chunks (doc, section, body, embedding, source, uploaded_at) "
+        "VALUES (:doc, :section, :body, :embedding, :source, :uploaded_at)"
     ).bindparams(bindparam("embedding", type_=Vector(EMBED_DIM)))
 
     engine = get_engine(admin=True)
     with engine.begin() as conn:
-        conn.execute(text("TRUNCATE kb_chunks RESTART IDENTITY"))
+        # Preserve user-uploaded rows (source='upload'); only refresh corpus rows.
+        conn.execute(text("DELETE FROM kb_chunks WHERE source = 'corpus'"))
         conn.execute(insert, rows)
 
     print(f"[seed_kb] inserted {len(rows)} chunk(s) into kb_chunks. done.")

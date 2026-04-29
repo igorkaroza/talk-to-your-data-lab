@@ -23,10 +23,12 @@ import atexit
 import queue
 import threading
 from collections.abc import Awaitable
+from typing import Any
 
 from claude_agent_sdk import ClaudeSDKClient
 
 from genbi.agent import OPTIONS, stream_turn
+from genbi.kb_ingest import IngestResult, ingest_upload
 
 DONE_SENTINEL = None
 
@@ -69,6 +71,18 @@ class AgentRuntime:
             q.put(err)
         finally:
             q.put(DONE_SENTINEL)
+
+    def ingest_files(self, files: list[Any]) -> list[IngestResult]:
+        """Synchronously ingest each Streamlit ``UploadedFile`` via the worker loop.
+
+        Blocks the caller until all files are processed. Per-file failures are
+        captured in :class:`IngestResult.error`; one bad file does not abort
+        the others, so the UI can show per-file outcomes side by side.
+        """
+        return self._submit(self._ingest_all(files)).result()
+
+    async def _ingest_all(self, files: list[Any]) -> list[IngestResult]:
+        return [await ingest_upload(f.name, f.read()) for f in files]
 
     def close(self) -> None:
         if self._closed:

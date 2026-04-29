@@ -51,6 +51,15 @@ def test_chunk_markdown_skips_empty_sections(tmp_path: Path) -> None:
     assert [c.section for c in chunks] == ["Real"]
 
 
+def test_chunk_markdown_text_matches_path_variant(tmp_path: Path) -> None:
+    body = "# Title\n\n## A\n\nbody-a.\n\n## B\n\nbody-b.\n"
+    md = tmp_path / "demo.md"
+    md.write_text(body, encoding="utf-8")
+    from_path = kb.chunk_markdown(md)
+    from_text = kb.chunk_markdown_text("demo.md", body)
+    assert from_path == from_text
+
+
 @pytest.fixture(scope="module")
 def _kb_corpus_seeded() -> None:
     try:

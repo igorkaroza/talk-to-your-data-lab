@@ -39,7 +39,7 @@ Business glossary lives as markdown under `kb/` (`glossary.md`, `metrics.md`, `o
 
 ## Safety rails (non-negotiable)
 
-1. **Two DB roles.** `genbi_admin` (write) is used only by `src/genbi/seed.py`. Everything else — agent tools, evals, app — connects through `READONLY_DATABASE_URL` as `genbi_reader`, which has `USAGE` on `public` and `SELECT` on tables. No write grants, ever.
+1. **Three DB roles.** `genbi_admin` (write) is used only by `src/genbi/seed.py` and `src/genbi/seed_kb.py`. The agent, evals, CLI, MCP, and the app's read paths connect through `READONLY_DATABASE_URL` as `genbi_reader` (`USAGE` on `public`, `SELECT` on tables — no write grants). The Streamlit ingest path in `src/genbi/kb_ingest.py` connects through `KB_WRITER_DATABASE_URL` as `genbi_kb_writer`, which has `USAGE` on `public` and `SELECT/INSERT/DELETE` on `kb_chunks` only — plus `USAGE/SELECT` on its sequence. No `ALTER DEFAULT PRIVILEGES` is granted to the writer, so it cannot gain rights on tables added later.
 2. **SQL validator.** `src/genbi/safety.py` parses every generated statement with `sqlglot` and rejects anything that isn't a single `SELECT` / `WITH ... SELECT`. Strips trailing semicolons. Blocks `INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|GRANT|TRUNCATE|COPY`.
 3. **Query limits.** `SET LOCAL statement_timeout = '5s'` per query; `LIMIT 1000` appended if missing.
 4. **No secrets in code.** Connection strings and `ANTHROPIC_API_KEY` live in `.env` (git-ignored); `.env.example` is the canonical template.
