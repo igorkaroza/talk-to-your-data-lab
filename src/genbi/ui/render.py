@@ -27,8 +27,9 @@ def render_tool_use(event: ToolUseEvent) -> None:
     """Add a tool-call entry to the active container.
 
     The caller chooses where the expander lands by entering a container
-    (``with sidebar_tab: render_tool_use(event)``); this function just
-    writes into the current Streamlit context.
+    (``with sidebar_tab: render_tool_use(event)`` for the Tools tab,
+    ``with kb_panel: render_tool_use(event)`` for the right-side KB drawer);
+    this function just writes into the current Streamlit context.
     """
     with st.expander(f"tool — {event.name}", expanded=False):
         sql = event.input.get("sql")
