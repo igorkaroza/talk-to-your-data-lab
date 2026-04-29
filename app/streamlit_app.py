@@ -117,6 +117,33 @@ html body div.st-key-hero-buttons .stButton > button {
   font-weight: 600;
   line-height: 1;
 }
+/* KB panel — fixed-position right drawer that slides in when            */
+/* body.kb-open is set by _KB_DRAWER_JS. Mirrors the native left sidebar */
+/* visually but lives independently so its toggle is a separate button.  */
+div.st-key-kb-panel {
+  position: fixed !important;
+  top: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 320px !important;
+  background: rgb(240, 242, 246) !important;
+  padding: 1.25rem 1rem 1.5rem 1rem !important;
+  z-index: 9998 !important;
+  transform: translateX(100%) !important;
+  transition: transform 200ms ease !important;
+  overflow-y: auto !important;
+  box-shadow: -2px 0 6px rgba(0,0,0,0.08) !important;
+  box-sizing: border-box !important;
+}
+body.kb-open div.st-key-kb-panel {
+  transform: translateX(0) !important;
+}
+div.st-key-kb-panel .kb-panel-header {
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1;
+  padding: 0.75rem 0 1rem 0;
+}
 /* Inline the st.status spinner — drop border/background so "thinking…" */
 /* sits flush with the robot avatar. Scoped via the st-key-thinking-   */
 /* status container key so it does not flatten the "data" expander     */
@@ -182,6 +209,96 @@ _EMPTY_STATE_CSS = """
   margin-top: auto !important;
 }
 </style>
+"""
+
+# Drawer-handle toggle for the right-edge KB panel. Streamlit doesn't
+# expose a second native sidebar, so the panel is a regular st.container
+# pinned via CSS (`div.st-key-kb-panel`) and toggled by adding/removing
+# `body.kb-open`. The pull-tab follows the panel: closed → right:0,
+# open → right:320px (just outside the panel's left edge). 400ms poll
+# keeps the count badge in sync with whatever kb_search expanders the
+# render path has appended.
+_KB_DRAWER_JS = """
+<script>
+(() => {
+  const doc = window.parent.document;
+
+  if (!doc.getElementById('genbi-kb-pull-style')) {
+    const styleEl = doc.createElement('style');
+    styleEl.id = 'genbi-kb-pull-style';
+    styleEl.textContent = `
+      #genbi-kb-pull {
+        position: fixed;
+        right: 0;
+        top: 50%;
+        transform: translateY(-50%);
+        z-index: 9999;
+        writing-mode: vertical-rl;
+        padding: 0.9rem 0.4rem;
+        background: rgba(49, 51, 63, 0.88);
+        color: #fff;
+        font-size: 0.72rem;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        border-radius: 0.4rem 0 0 0.4rem;
+        cursor: pointer;
+        user-select: none;
+        box-shadow: -2px 0 6px rgba(0,0,0,0.14);
+        transition: background 150ms, right 200ms ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.55rem;
+      }
+      #genbi-kb-pull:hover { background: rgba(49, 51, 63, 1); }
+      #genbi-kb-pull .count {
+        writing-mode: horizontal-tb;
+        background: #fff;
+        color: rgb(49, 51, 63);
+        border-radius: 999px;
+        padding: 1px 7px;
+        font-size: 0.66rem;
+        font-weight: 700;
+        display: inline-block;
+      }
+      body.kb-open #genbi-kb-pull {
+        right: 320px;
+        border-radius: 0.4rem 0 0 0.4rem;
+      }
+    `;
+    doc.head.appendChild(styleEl);
+  }
+
+  let pull = doc.getElementById('genbi-kb-pull');
+  if (!pull) {
+    pull = doc.createElement('div');
+    pull.id = 'genbi-kb-pull';
+    pull.title = 'Toggle knowledge base';
+    pull.innerHTML = 'knowledge base<span class="count">0</span>';
+    pull.addEventListener('click', () => {
+      doc.body.classList.toggle('kb-open');
+    });
+    doc.body.appendChild(pull);
+  }
+
+  // Pull-tab is always visible — KB is a peripheral resource the user
+  // may want to consult before any kb_search has fired. The badge shows
+  // the snippet count once the agent has populated the panel.
+  const refresh = () => {
+    const count = doc.querySelectorAll(
+      'div.st-key-kb-panel [data-testid="stExpander"]'
+    ).length;
+    const countEl = pull.querySelector('.count');
+    if (countEl && countEl.textContent !== String(count)) {
+      countEl.textContent = String(count);
+    }
+  };
+
+  if (doc.__genbiKbTick__) clearInterval(doc.__genbiKbTick__);
+  doc.__genbiKbTick__ = setInterval(refresh, 400);
+  refresh();
+})();
+</script>
 """
 
 # Drawer-handle toggle for the sidebar tool-call log. Streamlit's native
@@ -292,11 +409,15 @@ def _render_event(  # noqa: PLR0912 — flat dispatch over event types is cleare
     turn_id: str,
     index: int,
     state: dict[str, Any],
+    kb_panel: Any = None,
     explain_enabled: bool = False,
 ) -> None:
     """Render one event. Intermediate tool results are cleared when a later
     tool result arrives so only the turn's final chart/table stays in chat.
     The sidebar trace (``render_tool_result``) still records every call.
+
+    ``kb_panel`` routes ``kb_search`` events to the right-edge KB drawer;
+    everything else stays in the left tool-call sidebar.
 
     When ``explain_enabled`` is True (latest assistant turn), an "Explain
     this" button renders under the final result and queues a follow-up
@@ -306,9 +427,9 @@ def _render_event(  # noqa: PLR0912 — flat dispatch over event types is cleare
         if event.text:
             st.markdown(event.text)
     elif isinstance(event, ToolUseEvent):
-        render_tool_use(event)
+        render_tool_use(event, kb_panel=kb_panel)
     elif isinstance(event, ToolResultEvent):
-        render_tool_result(event)
+        render_tool_result(event, kb_panel=kb_panel)
         if event.payload and not event.is_error:
             prev = state.get("result_slot")
             if prev is not None:
@@ -341,7 +462,12 @@ def _render_event(  # noqa: PLR0912 — flat dispatch over event types is cleare
             st.caption(line)
 
 
-def _render_turn(turn: dict[str, Any], *, explain_enabled: bool = False) -> None:
+def _render_turn(
+    turn: dict[str, Any],
+    *,
+    kb_panel: Any = None,
+    explain_enabled: bool = False,
+) -> None:
     # Wrap each turn in a keyed container so Streamlit reconciles the same
     # DOM subtree across reruns instead of leaving stale elements behind
     # while a new turn is still draining. Without this, the DoneEvent
@@ -358,11 +484,12 @@ def _render_turn(turn: dict[str, Any], *, explain_enabled: bool = False) -> None
                     turn_id=turn["id"],
                     index=i,
                     state=state,
+                    kb_panel=kb_panel,
                     explain_enabled=explain_enabled,
                 )
 
 
-def _drain_turn(q: queue.Queue, turn_id: str) -> list:
+def _drain_turn(q: queue.Queue, turn_id: str, *, kb_panel: Any = None) -> list:
     collected: list = []
     state: dict[str, Any] = {}
     with st.container(key="thinking-status"):
@@ -387,7 +514,14 @@ def _drain_turn(q: queue.Queue, turn_id: str) -> list:
             elif isinstance(item, ToolResultEvent):
                 status.update(label=f"processing {item.name}…")
             collected.append(item)
-            _render_event(item, turn_id=turn_id, index=i, state=state, explain_enabled=True)
+            _render_event(
+                item,
+                turn_id=turn_id,
+                index=i,
+                state=state,
+                kb_panel=kb_panel,
+                explain_enabled=True,
+            )
             i += 1
     finally:
         stop_style_slot.empty()
@@ -412,6 +546,14 @@ def _render_hero_buttons() -> None:
 def main() -> None:
     st.markdown(_PAGE_CSS, unsafe_allow_html=True)
     components.html(_TOOLS_DRAWER_JS, height=0)
+    components.html(_KB_DRAWER_JS, height=0)
+
+    # Right-side KB drawer. Declared at the top so any kb_search expanders
+    # appended later in the script (whether replaying past turns or
+    # streaming the live drain) all land in the same DOM subtree.
+    kb_panel = st.container(key="kb-panel")
+    with kb_panel:
+        st.markdown('<div class="kb-panel-header">Knowledge base</div>', unsafe_allow_html=True)
 
     if "turns" not in st.session_state:
         st.session_state["turns"] = []
@@ -421,7 +563,7 @@ def main() -> None:
         st.markdown(_EMPTY_STATE_CSS, unsafe_allow_html=True)
     latest_assistant = _latest_assistant_index(turns)
     for i, turn in enumerate(turns):
-        _render_turn(turn, explain_enabled=(i == latest_assistant))
+        _render_turn(turn, kb_panel=kb_panel, explain_enabled=(i == latest_assistant))
 
     prompt = st.session_state.pop("pending_prompt", None)
 
@@ -429,13 +571,13 @@ def main() -> None:
         user_id = f"u{len(turns)}"
         user_turn = {"id": user_id, "role": "user", "events": [TextEvent(text=prompt)]}
         turns.append(user_turn)
-        _render_turn(user_turn)
+        _render_turn(user_turn, kb_panel=kb_panel)
 
         runtime = get_runtime()
         q = runtime.run_turn(prompt)
         assistant_id = f"a{len(turns)}"
         with st.chat_message("assistant"):
-            events = _drain_turn(q, assistant_id)
+            events = _drain_turn(q, assistant_id, kb_panel=kb_panel)
         turns.append({"id": assistant_id, "role": "assistant", "events": events})
 
     if not turns:

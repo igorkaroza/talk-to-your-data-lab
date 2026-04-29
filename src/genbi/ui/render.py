@@ -23,9 +23,18 @@ def result_to_dataframe(payload: dict[str, Any]) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=columns)
 
 
-def render_tool_use(event: ToolUseEvent) -> None:
-    """Add a tool-call entry to the sidebar trace."""
-    with st.sidebar.expander(f"tool — {event.name}", expanded=False):
+def _panel_for(event_name: str, kb_panel: Any) -> Any:
+    """Pick the drawer for an event. ``kb_search`` routes to ``kb_panel``
+    when provided; everything else stays in the tool-call sidebar."""
+    if event_name == "kb_search" and kb_panel is not None:
+        return kb_panel
+    return st.sidebar
+
+
+def render_tool_use(event: ToolUseEvent, *, kb_panel: Any = None) -> None:
+    """Add a tool-call entry to the appropriate drawer."""
+    panel = _panel_for(event.name, kb_panel)
+    with panel.expander(f"tool — {event.name}", expanded=False):
         sql = event.input.get("sql")
         if sql:
             st.code(sql, language="sql")
@@ -35,10 +44,11 @@ def render_tool_use(event: ToolUseEvent) -> None:
                 st.json(other)
 
 
-def render_tool_result(event: ToolResultEvent) -> None:
-    """Add a tool-result entry to the sidebar trace."""
+def render_tool_result(event: ToolResultEvent, *, kb_panel: Any = None) -> None:
+    """Add a tool-result entry to the appropriate drawer."""
     kind = "error" if event.is_error else "result"
-    with st.sidebar.expander(f"{kind} — {event.name}", expanded=False):
+    panel = _panel_for(event.name, kb_panel)
+    with panel.expander(f"{kind} — {event.name}", expanded=False):
         payload = event.payload
         if payload is None:
             st.code((event.raw_text or "(empty)")[:2000])
