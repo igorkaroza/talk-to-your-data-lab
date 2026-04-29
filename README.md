@@ -24,7 +24,7 @@ flowchart TB
 
     IMPL["Shared _impl coroutines<br/>schema_introspect · sql_execute<br/>chart_render · ask_user · kb_search"]
     SAFE["safety.py<br/>sqlglot · LIMIT 1000 · 5s timeout"]
-    KBI["kb_ingest.py<br/>(sidebar upload only)"]
+    KBI["kb_ingest.py<br/>(right-drawer upload only)"]
     DB[("PostgreSQL 16 + pgvector<br/>genbi_reader (SELECT)<br/>genbi_kb_writer (kb_chunks only)")]
 
     UI --> RT --> SDK
@@ -38,7 +38,52 @@ flowchart TB
     KBI --> DB
 ```
 
-The in-process path powers the CLI + Streamlit runtime (no IPC hop). The standalone stdio MCP exposes the same five tools to any Claude Code session in the repo via `.mcp.json`. Both paths share framework-agnostic `_<name>_impl` coroutines and the same read-only role. The Streamlit sidebar's "Knowledge base" tab is the only non-seed write path — it routes through `kb_ingest.py` as a separate, narrowly-scoped role that can only touch `kb_chunks`.
+The in-process path powers the CLI + Streamlit runtime (no IPC hop). The standalone stdio MCP exposes the same five tools to any Claude Code session in the repo via `.mcp.json`. Both paths share framework-agnostic `_<name>_impl` coroutines and the same read-only role. The Streamlit "Knowledge base" right-side drawer is the only non-seed write path — it routes through `kb_ingest.py` as a separate, narrowly-scoped role that can only touch `kb_chunks`.
+
+### Main user flow
+
+A typical question (`"How many high-priority tickets closed last month?"`) traverses the Streamlit UI → background runtime → agent → tools → Postgres, and streams typed events back to the UI:
+
+```mermaid
+sequenceDiagram
+    actor U as User
+    participant UI as Streamlit UI
+    participant RT as AgentRuntime<br/>(bg thread)
+    participant SDK as ClaudeSDKClient<br/>(sonnet-4-6)
+    participant T as @tool wrappers<br/>(in-process MCP)
+    participant S as safety.py<br/>(sqlglot)
+    participant DB as Postgres<br/>(genbi_reader)
+
+    U->>UI: ask question
+    UI->>RT: enqueue prompt
+    RT->>SDK: stream_turn(prompt)
+
+    opt fuzzy business term (revenue, hero, SLA)
+        SDK->>T: kb_search(query)
+        T->>DB: vector search on kb_chunks
+        DB-->>T: snippets
+        T-->>SDK: definitions
+    end
+
+    SDK->>T: schema_introspect()
+    T->>DB: information_schema lookup
+    DB-->>T: tables / columns
+    T-->>SDK: schema
+
+    SDK->>T: sql_execute(SELECT ...) or chart_render(SELECT ...)
+    T->>S: validate (single SELECT, no DDL/DML)
+    S->>S: append LIMIT 1000 if missing
+    S->>DB: SELECT ... with statement_timeout 5s
+    DB-->>S: rows
+    S-->>T: rows (plus plotly_json for chart_render)
+    T-->>SDK: ToolResultEvent
+
+    SDK-->>RT: TextEvent (one-line summary)
+    RT-->>UI: stream events (text + tool trace)
+    UI-->>U: chart/table in chat, SQL trace in sidebar
+```
+
+The `ask_user` tool is the one branch off this path: when the question is genuinely ambiguous, the agent calls `ask_user(question, options)` and ends its turn — the user's next message carries the clarification, and the flow above resumes from `stream_turn`. The CLI follows the same sequence minus the `UI`/`AgentRuntime` hop (`genbi.cli` drives `stream_turn` directly).
 
 ## Stack
 
@@ -104,9 +149,9 @@ Type `exit` or Ctrl-D to quit.
 uv run streamlit run app/streamlit_app.py
 ```
 
-Opens a browser chat at `http://localhost:8501`. Ask about `sales_orders` or `tickets` — answers come back as tables or Plotly charts in the chat pane, with the full tool-call trace (SQL, result shapes) in the sidebar's **Tools** tab. Chart and table results include a CSV download button. Hero-prompt chips above the chat input seed the conversation with rehearsed demo questions.
+Opens a browser chat at `http://localhost:8501`. Ask about `sales_orders` or `tickets` — answers come back as tables or Plotly charts in the chat pane, with the full tool-call trace (SQL, result shapes) in the left **Tools** sidebar. Each chart and table result has a CSV download button and an "Explain this result" button that asks the agent for a 2–3 sentence summary without re-running SQL. Hero-prompt chips show on the empty state, above the chat input, to seed the conversation with rehearsed demo questions.
 
-The sidebar's **Knowledge base** tab lets you upload `.md` or `.txt` files at runtime — each section is chunked, embedded via Ollama, and inserted into `kb_chunks` with `source='upload'`, so the next question's `kb_search` picks the new definitions up. Try it with [`demo_key_accounts.md`](demo_key_accounts.md) (defines "VIP" / "strategic" / "key account") and then ask the VIP hero question. Re-uploading the same filename replaces only that document's prior upload rows; the curated corpus is untouched.
+The right-side **Knowledge base** drawer (toggle from the right edge of the page) lets you upload `.md` or `.txt` files at runtime — each section is chunked, embedded via Ollama, and inserted into `kb_chunks` with `source='upload'`, so the next question's `kb_search` picks the new definitions up. The drawer also lists currently uploaded documents with their chunk counts and timestamps, and is where any `kb_search` snippets retrieved during a turn are surfaced. Try it with [`demo_key_accounts.md`](demo_key_accounts.md) (defines "VIP" / "strategic" / "key account") and then ask the VIP hero question. Re-uploading the same filename replaces only that document's prior upload rows; the curated corpus is untouched.
 
 The agent runtime lives on a background thread (`src/genbi/ui/runtime.py`) so one `ClaudeSDKClient` survives Streamlit's per-interaction reruns — don't call `asyncio.run` from the app code.
 
