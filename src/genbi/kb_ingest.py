@@ -1,9 +1,9 @@
 """Ingest user-uploaded ``.md`` / ``.txt`` documents into ``kb_chunks``.
 
-Called from the Streamlit chat-input upload path. This is the **only**
-non-seed write path against the database: it connects as
-``genbi_kb_writer`` (``SELECT/INSERT/DELETE`` on ``kb_chunks`` only) so the
-relaxation of "the app is read-only" stays scoped to one table.
+Called from the Streamlit "Knowledge base" sidebar tab. This is the
+**only** non-seed write path against the database: it connects as
+``genbi_kb_writer`` (``SELECT/INSERT/DELETE`` on ``kb_chunks`` only) so
+the relaxation of "the app is read-only" stays scoped to one table.
 
 User-uploaded rows are tagged ``source='upload'`` and coexist with
 ``source='corpus'`` rows from :mod:`genbi.seed_kb`. Re-uploading the same
@@ -135,3 +135,33 @@ async def ingest_upload(filename: str, content: bytes) -> IngestResult:
         return await asyncio.wait_for(_ingest(filename, content), timeout=INGEST_TIMEOUT_S)
     except TimeoutError:
         return IngestResult(filename=safe_name, error="ingest timed out")
+
+
+class UploadInfo(BaseModel):
+    doc: str
+    chunks: int
+    uploaded_at: datetime | None
+
+
+def list_uploads() -> list[UploadInfo]:
+    """Return one entry per user-uploaded ``doc`` for the sidebar listing.
+
+    Reads via the default ``genbi_reader`` engine — this is a SELECT-only
+    helper. Returns an empty list (not None) on a connection error so the
+    UI can render "no uploads yet" without raising.
+    """
+    stmt = text(
+        """
+        SELECT doc, COUNT(*) AS chunks, MAX(uploaded_at) AS uploaded_at
+          FROM kb_chunks
+         WHERE source = 'upload'
+         GROUP BY doc
+         ORDER BY MAX(uploaded_at) DESC NULLS LAST, doc
+        """
+    )
+    try:
+        with get_engine().connect() as conn:
+            rows = conn.execute(stmt).all()
+    except SQLAlchemyError:
+        return []
+    return [UploadInfo(doc=doc, chunks=int(chunks), uploaded_at=ts) for (doc, chunks, ts) in rows]

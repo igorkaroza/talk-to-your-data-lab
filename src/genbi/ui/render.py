@@ -24,8 +24,13 @@ def result_to_dataframe(payload: dict[str, Any]) -> pd.DataFrame:
 
 
 def render_tool_use(event: ToolUseEvent) -> None:
-    """Add a tool-call entry to the sidebar trace."""
-    with st.sidebar.expander(f"tool — {event.name}", expanded=False):
+    """Add a tool-call entry to the active container.
+
+    The caller chooses where the expander lands by entering a container
+    (``with sidebar_tab: render_tool_use(event)``); this function just
+    writes into the current Streamlit context.
+    """
+    with st.expander(f"tool — {event.name}", expanded=False):
         sql = event.input.get("sql")
         if sql:
             st.code(sql, language="sql")
@@ -36,9 +41,9 @@ def render_tool_use(event: ToolUseEvent) -> None:
 
 
 def render_tool_result(event: ToolResultEvent) -> None:
-    """Add a tool-result entry to the sidebar trace."""
+    """Add a tool-result entry to the active container."""
     kind = "error" if event.is_error else "result"
-    with st.sidebar.expander(f"{kind} — {event.name}", expanded=False):
+    with st.expander(f"{kind} — {event.name}", expanded=False):
         payload = event.payload
         if payload is None:
             st.code((event.raw_text or "(empty)")[:2000])

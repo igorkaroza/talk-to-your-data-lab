@@ -27,6 +27,7 @@ from genbi.events import (
     ToolResultEvent,
     ToolUseEvent,
 )
+from genbi.kb_ingest import list_uploads
 from genbi.ui.render import (
     render_ask_user_form,
     render_result_in_chat,
@@ -109,14 +110,8 @@ html body div.st-key-hero-buttons .stButton > button {
 [data-testid="stSidebar"] [data-testid="stSidebarHeader"] {
   display: flex !important;
   align-items: center !important;
-  justify-content: space-between !important;
-  padding: 0.75rem 1rem !important;
-}
-[data-testid="stSidebar"] [data-testid="stSidebarHeader"]::before {
-  content: "Tool calls";
-  font-size: 1.25rem;
-  font-weight: 600;
-  line-height: 1;
+  justify-content: flex-end !important;
+  padding: 0.5rem 1rem 0 !important;
 }
 /* Inline the st.status spinner — drop border/background so "thinking…" */
 /* sits flush with the robot avatar. Scoped via the st-key-thinking-   */
@@ -294,10 +289,12 @@ def _render_event(  # noqa: PLR0912 — flat dispatch over event types is cleare
     index: int,
     state: dict[str, Any],
     explain_enabled: bool = False,
+    tools_target: Any = None,
 ) -> None:
     """Render one event. Intermediate tool results are cleared when a later
     tool result arrives so only the turn's final chart/table stays in chat.
-    The sidebar trace (``render_tool_result``) still records every call.
+    Tool-trace expanders go into ``tools_target`` (the sidebar's "Tools"
+    tab) when provided; chart/table results stay in the main chat area.
 
     When ``explain_enabled`` is True (latest assistant turn), an "Explain
     this" button renders under the final result and queues a follow-up
@@ -307,9 +304,17 @@ def _render_event(  # noqa: PLR0912 — flat dispatch over event types is cleare
         if event.text:
             st.markdown(event.text)
     elif isinstance(event, ToolUseEvent):
-        render_tool_use(event)
+        if tools_target is not None:
+            with tools_target:
+                render_tool_use(event)
+        else:
+            render_tool_use(event)
     elif isinstance(event, ToolResultEvent):
-        render_tool_result(event)
+        if tools_target is not None:
+            with tools_target:
+                render_tool_result(event)
+        else:
+            render_tool_result(event)
         if event.payload and not event.is_error:
             prev = state.get("result_slot")
             if prev is not None:
@@ -342,7 +347,9 @@ def _render_event(  # noqa: PLR0912 — flat dispatch over event types is cleare
             st.caption(line)
 
 
-def _render_turn(turn: dict[str, Any], *, explain_enabled: bool = False) -> None:
+def _render_turn(
+    turn: dict[str, Any], *, explain_enabled: bool = False, tools_target: Any = None
+) -> None:
     # Wrap each turn in a keyed container so Streamlit reconciles the same
     # DOM subtree across reruns instead of leaving stale elements behind
     # while a new turn is still draining. Without this, the DoneEvent
@@ -360,10 +367,11 @@ def _render_turn(turn: dict[str, Any], *, explain_enabled: bool = False) -> None
                     index=i,
                     state=state,
                     explain_enabled=explain_enabled,
+                    tools_target=tools_target,
                 )
 
 
-def _drain_turn(q: queue.Queue, turn_id: str) -> list:
+def _drain_turn(q: queue.Queue, turn_id: str, *, tools_target: Any = None) -> list:
     collected: list = []
     state: dict[str, Any] = {}
     with st.container(key="thinking-status"):
@@ -388,7 +396,14 @@ def _drain_turn(q: queue.Queue, turn_id: str) -> list:
             elif isinstance(item, ToolResultEvent):
                 status.update(label=f"processing {item.name}…")
             collected.append(item)
-            _render_event(item, turn_id=turn_id, index=i, state=state, explain_enabled=True)
+            _render_event(
+                item,
+                turn_id=turn_id,
+                index=i,
+                state=state,
+                explain_enabled=True,
+                tools_target=tools_target,
+            )
             i += 1
     finally:
         stop_style_slot.empty()
@@ -402,6 +417,49 @@ def _latest_assistant_index(turns: list[dict[str, Any]]) -> int | None:
     return None
 
 
+def _render_kb_panel() -> None:
+    """Sidebar "Knowledge base" tab: upload + recent results + currently uploaded list."""
+    bump = st.session_state.get("kb_uploader_bump", 0)
+    files = st.file_uploader(
+        "Upload .md or .txt",
+        type=["md", "txt"],
+        accept_multiple_files=True,
+        key=f"kb_uploader_{bump}",
+        label_visibility="collapsed",
+    )
+    if st.button(
+        "Add to knowledge base",
+        key="kb_add",
+        disabled=not files,
+        use_container_width=True,
+    ):
+        with st.spinner("Ingesting..."):
+            results = get_runtime().ingest_files(files or [])
+        st.session_state["kb_last_results"] = [r.model_dump() for r in results]
+        st.session_state["kb_uploader_bump"] = bump + 1
+        st.rerun()
+
+    last = st.session_state.get("kb_last_results") or []
+    for r in last:
+        if r.get("error"):
+            st.error(f"**{r['filename']}** — {r['error']}", icon="⚠️")
+        else:
+            msg = f"**{r['filename']}** — added {r['chunks_inserted']} chunk(s)"
+            if r.get("chunks_replaced"):
+                msg += f" (replaced {r['chunks_replaced']})"
+            st.success(msg, icon="✅")
+
+    st.divider()
+    st.caption("Currently uploaded")
+    uploads = list_uploads()
+    if not uploads:
+        st.caption("_No uploads yet._")
+        return
+    for info in uploads:
+        when = info.uploaded_at.strftime("%Y-%m-%d %H:%M") if info.uploaded_at else "?"
+        st.markdown(f"**{info.doc}** · {info.chunks} chunk(s) · {when}")
+
+
 def _render_hero_buttons() -> None:
     with st.container(key="hero-buttons"):
         for i, q in enumerate(HERO_QUESTIONS):
@@ -410,9 +468,14 @@ def _render_hero_buttons() -> None:
                 st.rerun()
 
 
-def main() -> None:  # noqa: PLR0912, PLR0915 — splice covers ingest + agent + chat-input branches
+def main() -> None:
     st.markdown(_PAGE_CSS, unsafe_allow_html=True)
     components.html(_TOOLS_DRAWER_JS, height=0)
+
+    with st.sidebar:
+        tools_tab, kb_tab = st.tabs(["Tools", "Knowledge base"])
+    with kb_tab:
+        _render_kb_panel()
 
     if "turns" not in st.session_state:
         st.session_state["turns"] = []
@@ -422,71 +485,29 @@ def main() -> None:  # noqa: PLR0912, PLR0915 — splice covers ingest + agent +
         st.markdown(_EMPTY_STATE_CSS, unsafe_allow_html=True)
     latest_assistant = _latest_assistant_index(turns)
     for i, turn in enumerate(turns):
-        _render_turn(turn, explain_enabled=(i == latest_assistant))
+        _render_turn(turn, explain_enabled=(i == latest_assistant), tools_target=tools_tab)
 
-    pending = st.session_state.pop("pending_prompt", None)
-    # Hero buttons / ask_user / explain push raw strings; the chat input pushes
-    # a {text, files} dict. Normalize so the rest of the flow has one shape.
-    if isinstance(pending, str):
-        pending = {"text": pending, "files": []}
+    prompt = st.session_state.pop("pending_prompt", None)
 
-    if pending and (pending.get("text") or pending.get("files")):
-        text_part = (pending.get("text") or "").strip()
-        files = pending.get("files") or []
-
+    if prompt:
         user_id = f"u{len(turns)}"
-        user_events: list[Any] = []
-        if files:
-            attached = ", ".join(f.name for f in files)
-            user_events.append(TextEvent(text=f"_(attached: {attached})_"))
-        if text_part:
-            user_events.append(TextEvent(text=text_part))
-        user_turn = {"id": user_id, "role": "user", "events": user_events}
+        user_turn = {"id": user_id, "role": "user", "events": [TextEvent(text=prompt)]}
         turns.append(user_turn)
-        _render_turn(user_turn)
+        _render_turn(user_turn, tools_target=tools_tab)
 
         runtime = get_runtime()
-
-        if files:
-            with st.status("Ingesting attachments...", expanded=False) as status:
-                results = runtime.ingest_files(files)
-                for r in results:
-                    if r.ok:
-                        msg = f"**{r.filename}** — added {r.chunks_inserted} chunk(s)"
-                        if r.chunks_replaced:
-                            msg += f" (replaced {r.chunks_replaced})"
-                        status.write(msg)
-                    else:
-                        status.write(f"**{r.filename}** — {r.error}")
-                status.update(state="complete", label="Ingest complete.")
-            if not text_part:
-                st.toast("Knowledge base updated.")
-
-        if text_part:
-            q = runtime.run_turn(text_part)
-            assistant_id = f"a{len(turns)}"
-            with st.chat_message("assistant"):
-                events = _drain_turn(q, assistant_id)
-            turns.append({"id": assistant_id, "role": "assistant", "events": events})
+        q = runtime.run_turn(prompt)
+        assistant_id = f"a{len(turns)}"
+        with st.chat_message("assistant"):
+            events = _drain_turn(q, assistant_id, tools_target=tools_tab)
+        turns.append({"id": assistant_id, "role": "assistant", "events": events})
 
     if not turns:
         _render_hero_buttons()
 
-    chat_value = st.chat_input(
-        "Ask a question or attach .md / .txt to add to the knowledge base...",
-        accept_file="multiple",
-        file_type=["md", "txt"],
-    )
-    if chat_value is not None:
-        # accept_file makes chat_input return a ChatInputValue; without files it
-        # would still come back with `.text` populated.
-        if isinstance(chat_value, str):
-            st.session_state["pending_prompt"] = {"text": chat_value, "files": []}
-        else:
-            st.session_state["pending_prompt"] = {
-                "text": chat_value.text or "",
-                "files": list(chat_value.files or []),
-            }
+    chat_prompt = st.chat_input("Ask a question...")
+    if chat_prompt:
+        st.session_state["pending_prompt"] = chat_prompt
         st.rerun()
 
 
