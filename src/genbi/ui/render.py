@@ -13,7 +13,7 @@ import pandas as pd
 import plotly.io as pio
 import streamlit as st
 
-from genbi.events import KBSearchResultEvent, ToolResultEvent, ToolUseEvent
+from genbi.events import ToolResultEvent, ToolUseEvent
 
 
 def result_to_dataframe(payload: dict[str, Any]) -> pd.DataFrame:
@@ -53,6 +53,23 @@ def render_tool_result(event: ToolResultEvent) -> None:
             for t in payload["tables"]:
                 cols = ", ".join(c["name"] for c in t["columns"])
                 st.write(f"**{t['name']}** — {cols}")
+            return
+        if "snippets" in payload:
+            error = payload.get("error")
+            snippets = payload.get("snippets") or []
+            if error and not snippets:
+                st.write(f"skipped: {error}")
+                return
+            st.write(f"{len(snippets)} snippet(s)")
+            for snip in snippets:
+                doc = snip.get("doc", "")
+                section = snip.get("section", "")
+                score = snip.get("score")
+                score_str = f"  ·  score {score:.2f}" if isinstance(score, (int, float)) else ""
+                st.markdown(f"**{doc} › {section}**{score_str}")
+                body = snip.get("body") or ""
+                if body:
+                    st.markdown(body)
             return
         if "plotly_json" in payload:
             st.write(
@@ -129,30 +146,6 @@ def render_result_in_chat(
         st.dataframe(df, use_container_width=True)
         return clicked
     return False
-
-
-def render_kb_snippets(event: KBSearchResultEvent) -> None:
-    """Render retrieved KB snippets in the main chat area as a soft callout.
-
-    Used so the user can see what business context the agent pulled in
-    before writing SQL. Renders nothing if the embedding call failed and
-    no snippets came back — the error case shows a small caption instead.
-    """
-    if event.error and not event.snippets:
-        st.caption(f"kb_search skipped: {event.error}")
-        return
-    if not event.snippets:
-        return
-    with st.expander(f"context for: _{event.query}_", expanded=False):
-        for snip in event.snippets:
-            doc = snip.get("doc", "")
-            section = snip.get("section", "")
-            score = snip.get("score")
-            score_str = f"  ·  score {score:.2f}" if isinstance(score, (int, float)) else ""
-            st.markdown(f"**{doc} › {section}**{score_str}")
-            body = snip.get("body") or ""
-            if body:
-                st.markdown(body)
 
 
 def render_ask_user_form(

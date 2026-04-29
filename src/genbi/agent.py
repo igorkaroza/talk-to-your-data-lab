@@ -29,7 +29,6 @@ from rich.syntax import Syntax
 
 from genbi.events import (
     DoneEvent,
-    KBSearchResultEvent,
     TextEvent,
     ToolResultEvent,
     ToolUseEvent,
@@ -148,14 +147,7 @@ async def stream_turn(client: ClaudeSDKClient, prompt: str) -> AsyncIterator[Tur
             if isinstance(message.content, list):
                 for block in message.content:
                     if isinstance(block, ToolResultBlock):
-                        event = _tool_result_event(block, tool_names)
-                        yield event
-                        if event.name == "kb_search" and isinstance(event.payload, dict):
-                            yield KBSearchResultEvent(
-                                query=str(event.payload.get("query") or ""),
-                                snippets=list(event.payload.get("snippets") or []),
-                                error=event.payload.get("error"),
-                            )
+                        yield _tool_result_event(block, tool_names)
         elif isinstance(message, ResultMessage):
             usage = message.usage or {}
             yield DoneEvent(
