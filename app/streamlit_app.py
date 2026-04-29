@@ -113,6 +113,12 @@ html body div.st-key-hero-buttons .stButton > button {
   justify-content: flex-end !important;
   padding: 0.5rem 1rem 0 !important;
 }
+/* Hide the native sidebar collapse arrow — the "TOOL CALLS" pull-tab is */
+/* the single toggle for the drawer. The button itself is still in the  */
+/* DOM so the JS click handler can fire it programmatically.            */
+[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] {
+  display: none !important;
+}
 /* KB panel — fixed-position right drawer that slides in when            */
 /* body.kb-open is set by _KB_DRAWER_JS. Mirrors the native left sidebar */
 /* visually but lives independently so its toggle is a separate button.  */
@@ -299,11 +305,15 @@ _KB_DRAWER_JS = """
 
 # Drawer-handle toggle for the sidebar tool-call log. Streamlit's native
 # expand button lives inside `stHeader` — which `_PAGE_CSS` hides — so
-# once the user collapses the sidebar there's no way back. Inject a
-# left-edge vertical pull tab into the parent document via a components
-# iframe: same-origin lets us reach `window.parent.document`, and a
-# 400ms setInterval keeps the tab's count and visibility in sync with
-# the sidebar's `aria-expanded` state across reruns. (Tried a
+# without this pull-tab there's no affordance to open or close the
+# sidebar at all. The tab is always visible and doubles as a toggle:
+# clicking it opens the drawer when collapsed and closes it when open,
+# so the user can dismiss the tools panel with the same button they used
+# to open it. When open, the tab slides to the sidebar's right edge so
+# it doesn't overlap the panel. Injected into the parent document via a
+# components iframe (same-origin → `window.parent.document`); a 400ms
+# setInterval keeps badge count and tab position in sync with the
+# sidebar's `aria-expanded` state across reruns. (Tried a
 # MutationObserver first; observing doc.body for all mutations cascaded —
 # each style write on the pull element re-triggered the observer.)
 _TOOLS_DRAWER_JS = """
@@ -333,8 +343,8 @@ _TOOLS_DRAWER_JS = """
         cursor: pointer;
         user-select: none;
         box-shadow: 2px 0 6px rgba(0,0,0,0.14);
-        transition: background 150ms;
-        display: none;
+        transition: background 150ms, left 200ms ease;
+        display: inline-flex;
         align-items: center;
         gap: 0.55rem;
       }
@@ -359,13 +369,23 @@ _TOOLS_DRAWER_JS = """
     pull.id = 'genbi-tools-pull';
     pull.title = 'Show tool call log';
     pull.innerHTML = 'tool calls<span class="count">0</span>';
-    pull.addEventListener('click', () => {
-      const btn = doc.querySelector('[data-testid="stExpandSidebarButton"]')
-               || doc.querySelector('[data-testid="stSidebarCollapseButton"] button');
-      if (btn) btn.click();
-    });
     doc.body.appendChild(pull);
   }
+  // Re-bind the click handler every iframe run. components.html re-renders
+  // on each Streamlit rerun, which unloads the prior iframe; closures
+  // captured by addEventListener in dead iframes go neutered in Chrome,
+  // so the click silently no-ops. Reassigning onclick from the live
+  // iframe context restores it. Pick the button based on actual state so
+  // the pull-tab toggles cleanly — clicking expandBtn while expanded is
+  // a no-op in some Streamlit builds.
+  pull.onclick = () => {
+    const sidebar = doc.querySelector('[data-testid="stSidebar"]');
+    const isOpen = sidebar?.getAttribute('aria-expanded') === 'true';
+    const btn = isOpen
+      ? doc.querySelector('[data-testid="stSidebarCollapseButton"] button')
+      : doc.querySelector('[data-testid="stExpandSidebarButton"]');
+    if (btn) btn.click();
+  };
 
   const refresh = () => {
     const sidebar = doc.querySelector('[data-testid="stSidebar"]');
@@ -376,11 +396,15 @@ _TOOLS_DRAWER_JS = """
     if (countEl && countEl.textContent !== String(count)) {
       countEl.textContent = String(count);
     }
-    // aria-expanded is the canonical sidebar state. offsetWidth is unreliable —
-    // the outer stSidebar element can report 0 while its inner content is visible.
-    const collapsed = !sidebar || sidebar.getAttribute('aria-expanded') !== 'true';
-    const next = count > 0 && collapsed ? 'inline-flex' : 'none';
-    if (pull.style.display !== next) pull.style.display = next;
+    // Pull-tab is always visible — it doubles as the toggle, so the user
+    // can dismiss the drawer with the same button they used to open it.
+    // When the sidebar is open, slide the tab to its right edge so it
+    // doesn't sit on top of sidebar content. aria-expanded is the
+    // canonical sidebar state (offsetWidth is unreliable — the outer
+    // stSidebar element can report 0 while its inner content is visible).
+    const isOpen = sidebar?.getAttribute('aria-expanded') === 'true';
+    const left = isOpen ? `${Math.round(sidebar.getBoundingClientRect().width)}px` : '0px';
+    if (pull.style.left !== left) pull.style.left = left;
   };
 
   // MutationObserver on doc.body cascades — every pull.style.display write
@@ -405,17 +429,13 @@ def _render_event(  # noqa: PLR0912 — flat dispatch over event types is cleare
     turn_id: str,
     index: int,
     state: dict[str, Any],
-    kb_panel: Any = None,
     explain_enabled: bool = False,
     tools_target: Any = None,
 ) -> None:
     """Render one event. Intermediate tool results are cleared when a later
     tool result arrives so only the turn's final chart/table stays in chat.
-    Tool-trace expanders go into ``tools_target`` (the sidebar's "Tools"
-    tab) when provided; chart/table results stay in the main chat area.
-
-    ``kb_panel`` routes ``kb_search`` events to the right-edge KB drawer;
-    everything else stays in the left tool-call sidebar.
+    Tool-trace expanders go into ``tools_target`` (the left sidebar) when
+    provided; chart/table results stay in the main chat area.
 
     When ``explain_enabled`` is True (latest assistant turn), an "Explain
     this" button renders under the final result and queues a follow-up
@@ -425,16 +445,14 @@ def _render_event(  # noqa: PLR0912 — flat dispatch over event types is cleare
         if event.text:
             st.markdown(event.text)
     elif isinstance(event, ToolUseEvent):
-        target = kb_panel if (event.name == "kb_search" and kb_panel is not None) else tools_target
-        if target is not None:
-            with target:
+        if tools_target is not None:
+            with tools_target:
                 render_tool_use(event)
         else:
             render_tool_use(event)
     elif isinstance(event, ToolResultEvent):
-        target = kb_panel if (event.name == "kb_search" and kb_panel is not None) else tools_target
-        if target is not None:
-            with target:
+        if tools_target is not None:
+            with tools_target:
                 render_tool_result(event)
         else:
             render_tool_result(event)
@@ -473,7 +491,6 @@ def _render_event(  # noqa: PLR0912 — flat dispatch over event types is cleare
 def _render_turn(
     turn: dict[str, Any],
     *,
-    kb_panel: Any = None,
     explain_enabled: bool = False,
     tools_target: Any = None,
 ) -> None:
@@ -493,15 +510,12 @@ def _render_turn(
                     turn_id=turn["id"],
                     index=i,
                     state=state,
-                    kb_panel=kb_panel,
                     explain_enabled=explain_enabled,
                     tools_target=tools_target,
                 )
 
 
-def _drain_turn(
-    q: queue.Queue, turn_id: str, *, kb_panel: Any = None, tools_target: Any = None
-) -> list:
+def _drain_turn(q: queue.Queue, turn_id: str, *, tools_target: Any = None) -> list:
     collected: list = []
     state: dict[str, Any] = {}
     with st.container(key="thinking-status"):
@@ -531,7 +545,6 @@ def _drain_turn(
                 turn_id=turn_id,
                 index=i,
                 state=state,
-                kb_panel=kb_panel,
                 explain_enabled=True,
                 tools_target=tools_target,
             )
@@ -549,8 +562,11 @@ def _latest_assistant_index(turns: list[dict[str, Any]]) -> int | None:
 
 
 def _render_kb_panel() -> None:
-    """Sidebar "Knowledge base" tab: upload + recent results + currently uploaded list."""
+    """Right-side KB drawer body: upload + recent results + currently uploaded list."""
     bump = st.session_state.get("kb_uploader_bump", 0)
+    # Streamlit's normalize_upload_file_type lowercases extensions and the
+    # server-side enforce_filename_restriction lowercases the filename before
+    # matching, so ["md", "txt"] already accepts FOO.MD / FOO.MD case-blind.
     files = st.file_uploader(
         "Upload .md or .txt",
         type=["md", "txt"],
@@ -558,27 +574,22 @@ def _render_kb_panel() -> None:
         key=f"kb_uploader_{bump}",
         label_visibility="collapsed",
     )
-    if st.button(
-        "Add to knowledge base",
-        key="kb_add",
-        disabled=not files,
-        use_container_width=True,
-    ):
+    # Auto-ingest as soon as files are selected. Streamlit reruns on upload,
+    # so we land here with `files` populated, ingest, then bump the uploader
+    # key to clear the input — same pattern the old "Add" button used.
+    if files:
         with st.spinner("Ingesting..."):
-            results = get_runtime().ingest_files(files or [])
+            results = get_runtime().ingest_files(files)
         st.session_state["kb_last_results"] = [r.model_dump() for r in results]
         st.session_state["kb_uploader_bump"] = bump + 1
         st.rerun()
 
+    # Successful uploads show up in the "Currently uploaded" list below;
+    # only surface errors here since they never make it into list_uploads().
     last = st.session_state.get("kb_last_results") or []
     for r in last:
         if r.get("error"):
             st.error(f"**{r['filename']}** — {r['error']}", icon="⚠️")
-        else:
-            msg = f"**{r['filename']}** — added {r['chunks_inserted']} chunk(s)"
-            if r.get("chunks_replaced"):
-                msg += f" (replaced {r['chunks_replaced']})"
-            st.success(msg, icon="✅")
 
     st.divider()
     st.caption("Currently uploaded")
@@ -604,17 +615,22 @@ def main() -> None:
     components.html(_TOOLS_DRAWER_JS, height=0)
     components.html(_KB_DRAWER_JS, height=0)
 
-    # Right-side KB drawer. Declared at the top so any kb_search expanders
-    # appended later in the script (whether replaying past turns or
-    # streaming the live drain) all land in the same DOM subtree.
-    kb_panel = st.container(key="kb-panel")
-    with kb_panel:
+    # Right-side KB drawer. Hosts the upload UI and the "Currently uploaded"
+    # list — pure KB management. All tool calls (including kb_search) render
+    # in the left sidebar so the user has one consolidated tool-call log.
+    with st.container(key="kb-panel"):
         st.markdown('<div class="kb-panel-header">Knowledge base</div>', unsafe_allow_html=True)
-
-    with st.sidebar:
-        tools_tab, kb_tab = st.tabs(["Tools", "Knowledge base"])
-    with kb_tab:
         _render_kb_panel()
+
+    # Left sidebar is Tools-only. Use the sidebar itself as the render
+    # target so tool-call expanders mount directly under the native
+    # sidebar header. Drop an empty placeholder unconditionally so the
+    # sidebar always exists in the DOM — Streamlit skips rendering an
+    # empty sidebar entirely, which would leave the always-visible
+    # pull-tab with nothing to toggle on first page load.
+    with st.sidebar:
+        st.empty()
+    tools_target = st.sidebar
 
     if "turns" not in st.session_state:
         st.session_state["turns"] = []
@@ -626,9 +642,8 @@ def main() -> None:
     for i, turn in enumerate(turns):
         _render_turn(
             turn,
-            kb_panel=kb_panel,
             explain_enabled=(i == latest_assistant),
-            tools_target=tools_tab,
+            tools_target=tools_target,
         )
 
     prompt = st.session_state.pop("pending_prompt", None)
@@ -637,13 +652,13 @@ def main() -> None:
         user_id = f"u{len(turns)}"
         user_turn = {"id": user_id, "role": "user", "events": [TextEvent(text=prompt)]}
         turns.append(user_turn)
-        _render_turn(user_turn, kb_panel=kb_panel, tools_target=tools_tab)
+        _render_turn(user_turn, tools_target=tools_target)
 
         runtime = get_runtime()
         q = runtime.run_turn(prompt)
         assistant_id = f"a{len(turns)}"
         with st.chat_message("assistant"):
-            events = _drain_turn(q, assistant_id, kb_panel=kb_panel, tools_target=tools_tab)
+            events = _drain_turn(q, assistant_id, tools_target=tools_target)
         turns.append({"id": assistant_id, "role": "assistant", "events": events})
 
     if not turns:
