@@ -44,6 +44,7 @@ HERO_QUESTIONS = [
     "What are the top 5 products by total revenue this year?",
     "Plot tickets opened per day over the last 30 days as a line chart",
     "What's the average order amount by customer region?",
+    "Show revenue from our VIP customers this quarter as a bar chart",
 ]
 
 EXPLAIN_PROMPT = (
