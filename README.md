@@ -22,20 +22,23 @@ flowchart TB
         STD["Standalone stdio MCP<br/>mcp_servers/postgres_readonly.py"]
     end
 
-    IMPL["Shared _impl coroutines<br/>schema_introspect · sql_execute · chart_render"]
+    IMPL["Shared _impl coroutines<br/>schema_introspect · sql_execute<br/>chart_render · ask_user · kb_search"]
     SAFE["safety.py<br/>sqlglot · LIMIT 1000 · 5s timeout"]
-    DB[("PostgreSQL 16<br/>genbi_reader, SELECT-only")]
+    KBI["kb_ingest.py<br/>(sidebar upload only)"]
+    DB[("PostgreSQL 16 + pgvector<br/>genbi_reader (SELECT)<br/>genbi_kb_writer (kb_chunks only)")]
 
     UI --> RT --> SDK
+    UI -. KB upload .-> KBI
     CLI --> SDK
     SDK --> IN
     CC --> STD
     IN --> IMPL
     STD --> IMPL
     IMPL --> SAFE --> DB
+    KBI --> DB
 ```
 
-The in-process path powers the CLI + Streamlit runtime (no IPC hop). The standalone stdio MCP exposes the same three tools to any Claude Code session in the repo via `.mcp.json`. Both paths share framework-agnostic `_<name>_impl` coroutines and the same read-only role.
+The in-process path powers the CLI + Streamlit runtime (no IPC hop). The standalone stdio MCP exposes the same five tools to any Claude Code session in the repo via `.mcp.json`. Both paths share framework-agnostic `_<name>_impl` coroutines and the same read-only role. The Streamlit sidebar's "Knowledge base" tab is the only non-seed write path — it routes through `kb_ingest.py` as a separate, narrowly-scoped role that can only touch `kb_chunks`.
 
 ## Stack
 
@@ -62,7 +65,8 @@ uv sync --all-extras
 
 # 2. Configure secrets
 cp .env.example .env
-# edit .env: set ANTHROPIC_API_KEY (DATABASE_URL / READONLY_DATABASE_URL defaults are fine)
+# edit .env: set ANTHROPIC_API_KEY
+# (DATABASE_URL / READONLY_DATABASE_URL / KB_WRITER_DATABASE_URL defaults are fine)
 
 # 3. Start Postgres and load synthetic data
 docker compose up -d postgres
@@ -73,9 +77,9 @@ ollama pull nomic-embed-text
 uv run python -m genbi.seed_kb
 ```
 
-`genbi.seed` provisions two roles — `genbi_admin` (write, used only by the seed script) and `genbi_reader` (SELECT-only, used by everything else) — and populates `sales_orders` (~2000 rows) and `tickets` (~1200 rows) with Faker. It also enables the `vector` extension and creates an empty `kb_chunks` table for RAG.
+`genbi.seed` provisions three roles — `genbi_admin` (write, used only by the seed scripts), `genbi_reader` (SELECT-only, used by the agent / CLI / evals / app reads), and `genbi_kb_writer` (`SELECT/INSERT/DELETE` on `kb_chunks` only, used solely by the Streamlit KB-upload path) — and populates `sales_orders` (~2000 rows) and `tickets` (~1200 rows) with Faker. It also enables the `vector` extension and creates an empty `kb_chunks` table for RAG.
 
-`genbi.seed_kb` is optional: it embeds the markdown files under `kb/` via a locally-running [Ollama](https://ollama.com/) (`nomic-embed-text`, 768 dims) and inserts them into `kb_chunks`. The agent's `kb_search` tool retrieves from this corpus before writing SQL when a question uses fuzzy business terms ("hero product", "active customer", "revenue"). If Ollama is unreachable at runtime, `kb_search` returns an error field and the agent proceeds without RAG context — nothing else breaks.
+`genbi.seed_kb` is optional: it embeds the markdown files under `kb/` via a locally-running [Ollama](https://ollama.com/) (`nomic-embed-text`, 768 dims) and inserts them into `kb_chunks` with `source='corpus'`. The agent's `kb_search` tool retrieves from this corpus before writing SQL when a question uses fuzzy business terms ("hero product", "active customer", "revenue"). If Ollama is unreachable at runtime, `kb_search` returns an error field and the agent proceeds without RAG context — nothing else breaks. Re-running `seed_kb` refreshes only `source='corpus'` rows; user uploads (`source='upload'`) survive.
 
 ## Run the chat
 
@@ -100,13 +104,15 @@ Type `exit` or Ctrl-D to quit.
 uv run streamlit run app/streamlit_app.py
 ```
 
-Opens a browser chat at `http://localhost:8501`. Ask about `sales_orders` or `tickets` — answers come back as tables or Plotly charts in the chat pane, with the full tool-call trace (SQL, result shapes) in the sidebar. Chart and table results include a CSV download button.
+Opens a browser chat at `http://localhost:8501`. Ask about `sales_orders` or `tickets` — answers come back as tables or Plotly charts in the chat pane, with the full tool-call trace (SQL, result shapes) in the sidebar's **Tools** tab. Chart and table results include a CSV download button. Hero-prompt chips above the chat input seed the conversation with rehearsed demo questions.
+
+The sidebar's **Knowledge base** tab lets you upload `.md` or `.txt` files at runtime — each section is chunked, embedded via Ollama, and inserted into `kb_chunks` with `source='upload'`, so the next question's `kb_search` picks the new definitions up. Try it with [`demo_key_accounts.md`](demo_key_accounts.md) (defines "VIP" / "strategic" / "key account") and then ask the VIP hero question. Re-uploading the same filename replaces only that document's prior upload rows; the curated corpus is untouched.
 
 The agent runtime lives on a background thread (`src/genbi/ui/runtime.py`) so one `ClaudeSDKClient` survives Streamlit's per-interaction reruns — don't call `asyncio.run` from the app code.
 
 ## Evals
 
-A structural regression suite lives in `evals/questions.yaml` (12 cases across both tables). Scoring is structural, not numeric — Faker data is noise, so we assert on tool-firing, SQL table references (parsed with `sqlglot`), chart type, and row-count thresholds instead of specific values.
+A structural regression suite lives in `evals/questions.yaml` (11 cases across both tables). Scoring is structural, not numeric — Faker data is noise, so we assert on tool-firing, SQL table references (parsed with `sqlglot`), chart type, and row-count thresholds instead of specific values.
 
 ```bash
 uv run python -m evals.run_evals          # run full suite, print Rich pass/fail table
@@ -131,7 +137,7 @@ Every primitive is wired to a concrete job in this repo — full map in [CLAUDE.
 - **5 subagents** (`.claude/agents/`) — `developer`, `code-reviewer`, `test-writer`, `docs-writer`, `sql-reviewer`.
 - **4 hooks** (`.claude/settings.json`) — ruff on Write/Edit; advisory `docs-writer` drift check on `tools.py` / `agent.py` / `pyproject.toml`; advisory `code-reviewer` on `git commit`; `pytest -q` on Stop.
 - **4 CI workflows** (`.github/workflows/`) — `claude-review.yml` (AI PR review), `eval-regression.yml` (live eval gate), `nightly-doc-sync.yml` (auto-PR on docs drift), `issue-to-pr.yml` (label `claude-implement` → headless `developer` subagent → draft PR).
-- **Standalone MCP** (`.mcp.json`) — `postgres-readonly` stdio server exposing the same three tools to any Claude Code session in the repo.
+- **Standalone MCP** (`.mcp.json`) — `postgres-readonly` stdio server exposing the same five tools to any Claude Code session in the repo.
 
 ## Tests & lint
 
@@ -142,13 +148,15 @@ uv run ruff format . && uv run ruff check .
 
 ## Safety rails
 
-Every generated statement is parsed by `sqlglot` and rejected if it isn't a single `SELECT` / `WITH ... SELECT`; `INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|GRANT|TRUNCATE|COPY` are blocked. A `statement_timeout = 5s` is pinned per query and `LIMIT 1000` is appended when absent. The runtime role has no write grants, so any violation of the above would fail at the database anyway. See [CLAUDE.md](CLAUDE.md#safety-rails-non-negotiable) for the non-negotiable list.
+Every generated statement is parsed by `sqlglot` and rejected if it isn't a single `SELECT` / `WITH ... SELECT`; `INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|GRANT|TRUNCATE|COPY` are blocked. A `statement_timeout = 5s` is pinned per query and `LIMIT 1000` is appended when absent. The runtime role has no write grants, so any violation of the above would fail at the database anyway.
+
+The KB-upload path is the one place a Streamlit user can write to the database. It connects through a separate `genbi_kb_writer` role with `SELECT/INSERT/DELETE` on `kb_chunks` only — no `ALTER DEFAULT PRIVILEGES`, no other tables, no DDL. Uploads are capped at 1 MB / 100 chunks per file and wrapped in a 60 s ingest timeout. See [CLAUDE.md](CLAUDE.md#safety-rails-non-negotiable) for the non-negotiable list.
 
 ## Repo layout
 
 ```
 src/genbi/        # package: db, seed, seed_kb, safety, tools, agent, events,
-                  # kb, cli, ui/
+                  # kb, kb_ingest, cli, ui/
 kb/               # business-glossary corpus (markdown, one ## H2 = one chunk)
 tests/            # pytest suite (unit + integration)
 app/              # Streamlit UI
@@ -158,6 +166,7 @@ mcp_servers/      # postgres_readonly standalone stdio MCP
 .github/workflows # claude-review, eval-regression, nightly-doc-sync,
                   # issue-to-pr
 .mcp.json         # registers postgres-readonly stdio MCP
+demo_key_accounts.md  # demo doc for the sidebar KB upload (VIP / strategic / key account)
 CLAUDE.md         # project conventions — safety rails, commands, model defaults
 docker-compose.yml
 ```
